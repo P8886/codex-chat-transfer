@@ -1,0 +1,10 @@
+/target/
+/single-exe/target/
+/node_modules/
+/ui-dist/
+/dist/
+/.runtime/
+/.build/
+/test-results/
+/playwright-report/
+*.cct.zip
