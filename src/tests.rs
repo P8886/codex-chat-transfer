@@ -54,6 +54,58 @@ fn bare_home() -> TempDir {
 }
 
 #[test]
+fn deleting_one_thread_ignores_unrelated_empty_session_files() {
+    let home = bare_home();
+    let id = Uuid::new_v4().to_string();
+    let selected = fixture(home.path(), &id, None, "Only selected conversation");
+    let empty = home.path().join("sessions/empty.jsonl");
+    fs::write(&empty, []).unwrap();
+    fs::create_dir_all(home.path().join("archived_sessions")).unwrap();
+    let archived_empty = home.path().join("archived_sessions/empty.jsonl");
+    fs::write(&archived_empty, []).unwrap();
+    let other = fixture(
+        home.path(),
+        &Uuid::new_v4().to_string(),
+        None,
+        "Unselected conversation",
+    );
+    let hash = bundle::digest_file(&other).unwrap();
+    let options = crate::deletion::DeleteOptions {
+        home: home.path().to_path_buf(),
+        threads: vec![id],
+        confirmed: true,
+    };
+    assert_eq!(
+        crate::deletion::delete_checked(&options, || Ok(()))
+            .unwrap()
+            .deleted,
+        1
+    );
+    assert!(!selected.exists());
+    assert!(empty.exists());
+    assert!(archived_empty.exists());
+    assert_eq!(bundle::digest_file(&other).unwrap(), hash);
+}
+
+#[test]
+fn nonempty_unreadable_dependency_files_are_reported_with_their_paths() {
+    let home = bare_home();
+    let id = Uuid::new_v4().to_string();
+    let selected = fixture(home.path(), &id, None, "Keep if dependency check fails");
+    let bad = home.path().join("sessions/broken.jsonl");
+    fs::write(&bad, "not JSON").unwrap();
+    let options = crate::deletion::DeleteOptions {
+        home: home.path().to_path_buf(),
+        threads: vec![id],
+        confirmed: true,
+    };
+    let error = crate::deletion::delete_checked(&options, || Ok(())).unwrap_err();
+    assert!(format!("{error:#}").contains("broken.jsonl"));
+    assert!(selected.exists());
+    assert!(!home.path().join("chat-transfer-backups").exists());
+}
+
+#[test]
 fn directory_exports_are_numbered_without_overwriting_existing_files() {
     let home = bare_home();
     let out = TempDir::new().unwrap();

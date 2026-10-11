@@ -4,7 +4,9 @@
 
 ## 使用
 
-单文件版只需复制 `codex-chat-transfer-single-v0.4.3.exe`，双击即打开独立窗口。EXE 内置应用与加载器，首次运行自动释放到当前用户的 `%LOCALAPPDATA%\CodexChatTransfer\single-file` 缓存，不需要手动携带 DLL、解压 ZIP 或安装应用。仍使用系统 WebView2 Runtime。关闭窗口后，启动器和内部服务一并退出。单文件版是图形入口，命令行功能使用下面的普通便携包。
+单文件版只需复制 `codex-chat-transfer-single-v0.4.4.exe`，双击即打开独立窗口。EXE 内置应用与加载器，首次运行自动释放到当前用户的 `%LOCALAPPDATA%\CodexChatTransfer\single-file` 缓存，不需要手动携带 DLL、解压 ZIP 或安装应用。仍使用系统 WebView2 Runtime。关闭窗口后，启动器和内部服务一并退出。单文件版是图形入口，命令行功能使用下面的普通便携包。
+
+删除时的历史依赖检查跳过无关的零字节会话文件，不删除这些空文件。非空文件无法检查时仍会停止删除，并明确显示出错文件路径；真正的历史依赖保护保持不变。
 
 界面导出只需选择文件夹，自动生成 `codex-chats.cct.zip`。同名文件存在时依次尝试 `codex-chats-1.cct.zip`、`codex-chats-2.cct.zip`，不会覆盖现有包；结果显示实际生成的完整路径。命令行的 `--out` 仍使用指定文件名。
 

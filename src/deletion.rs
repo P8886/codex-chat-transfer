@@ -58,6 +58,7 @@ pub(crate) fn delete_checked(
         "部分会话已不存在，请刷新列表"
     );
     let mut rollouts = BTreeSet::new();
+    let mut found = BTreeSet::new();
 
     for folder in ["sessions", "archived_sessions"] {
         let root = home.join(folder);
@@ -70,8 +71,12 @@ pub(crate) fn delete_checked(
             {
                 continue;
             }
-
-            let meta = model::first_metadata(entry.path())?;
+            // Empty files contain no history references and must not block unrelated deletions.
+            if entry.metadata()?.len() == 0 {
+                continue;
+            }
+            let meta = model::first_metadata(entry.path())
+                .with_context(|| format!("无法检查会话历史依赖：{}", entry.path().display()))?;
             let id = meta["payload"]["id"].as_str().context("会话缺少 ID")?;
 
             if !ids.contains(id)
@@ -88,6 +93,7 @@ pub(crate) fn delete_checked(
                 bail!("会话 {title} 依赖待删除的前段历史，请一起选择或取消删除其前段会话");
             }
             if ids.contains(id) {
+                found.insert(id.to_owned());
                 let path = entry.path().canonicalize()?;
                 ensure!(
                     path.starts_with(&home),
@@ -98,6 +104,10 @@ pub(crate) fn delete_checked(
         }
     }
 
+    ensure!(
+        ids.is_subset(&found),
+        "待删除会话文件发生变化或已为空，请刷新列表后重试"
+    );
     let databases: Vec<_> = [
         "state_5.sqlite",
         "thread_history_1.sqlite",
