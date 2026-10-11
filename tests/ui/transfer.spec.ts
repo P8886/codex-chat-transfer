@@ -1,5 +1,39 @@
 import { test, expect } from '@playwright/test';
 
+test('night mode covers exports, imports and preview dialogs and persists after reload',async({page})=>{
+  let saved:'light'|'dark'='light';
+  const writes:string[]=[];
+  await page.route('**/api/bootstrap',route=>route.fulfill({json:{home:'C:\\Users\\test\\.codex',codexBinary:'C:\\codex.exe',token:'test-token',runtimeClosed:true,blockingProcesses:[],version:'0.6.0',theme:saved}}));
+  await page.route('**/api/theme',async route=>{saved=route.request().postDataJSON().theme;writes.push(saved);await route.fulfill({json:{theme:saved}});});
+  await page.route('**/api/conversation',route=>route.fulfill({json:{title:'Night preview',total:2,offset:0,messages:[{role:'user',text:'用户消息',timestamp:null,truncated:false},{role:'assistant',text:'助手消息',timestamp:null,truncated:false}]}}));
+  await page.goto('/');
+  await page.getByRole('button',{name:'切换夜间模式',exact:true}).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+  await expect(page.getByRole('button',{name:'切换日间模式',exact:true})).toBeEnabled();
+  expect(await page.locator('.app').evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(28, 30, 34)');
+  await page.screenshot({path:'test-results/night-export.png'});
+  await page.getByRole('button',{name:'预览 子任务勾选状态更新',exact:true}).click();
+  const preview=page.getByRole('dialog',{name:'会话预览'});
+  await expect(preview.getByText('用户消息',{exact:true})).toBeVisible();
+  expect(await preview.evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(30, 32, 36)');
+  await page.screenshot({path:'test-results/night-preview.png'});
+  await preview.getByRole('button',{name:'关闭预览',exact:true}).click();
+  await page.getByRole('button',{name:'删除 子任务勾选状态更新',exact:true}).click();
+  const deletion=page.getByRole('dialog',{name:'确认删除会话'});
+  expect(await deletion.evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(30, 32, 36)');
+  await deletion.getByRole('button',{name:'取消',exact:true}).click();
+  await page.getByRole('button',{name:'导入到本机',exact:true}).click();
+  expect(await page.getByRole('textbox',{name:'导出包路径'}).locator('..').evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(37, 41, 46)');
+  await page.screenshot({path:'test-results/night-import.png'});
+  await page.reload();
+  await expect(page.getByRole('button',{name:'切换日间模式',exact:true})).toBeEnabled();
+  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+  await page.getByRole('button',{name:'切换日间模式',exact:true}).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme','light');
+  await expect(page.getByRole('button',{name:'切换夜间模式',exact:true})).toBeEnabled();
+  expect(writes).toEqual(['dark','light']);
+});
+
 test('approved application icon renders in the header and favicon',async({page})=>{
   await page.goto('/');
   const icon=page.locator('.brand > img');

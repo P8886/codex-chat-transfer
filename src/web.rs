@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use codex_chat_transfer::{
     bundle, conversation, deletion,
     importer::{self, ImportOptions},
-    model, rpc, runtime,
+    model, preferences, rpc, runtime,
 };
 use include_dir::{include_dir, Dir};
 use serde_json::{json, Value};
@@ -30,7 +30,7 @@ fn api(request: &mut Request, token: &str, origin: &str) -> Result<Value> {
         let report = runtime::inspect();
         return Ok(
             json!({"home":model::default_home(),"codexBinary":rpc::detect_binary().ok(),"token":token,
-            "runtimeClosed":!report.blocked,"runtimeError":if report.blocked {Some("请退出列表中的数据写入进程")}else{None},"blockingProcesses":report.blockers,"version":env!("CARGO_PKG_VERSION")}),
+            "runtimeClosed":!report.blocked,"runtimeError":if report.blocked {Some("请退出列表中的数据写入进程")}else{None},"blockingProcesses":report.blockers,"version":env!("CARGO_PKG_VERSION"),"theme":preferences::theme()}),
         );
     }
     if request.method() != &Method::Post {
@@ -67,6 +67,11 @@ fn api(request: &mut Request, token: &str, origin: &str) -> Result<Value> {
         ))
     };
     match request.url() {
+        "/api/theme" => {
+            let theme: preferences::Theme = serde_json::from_value(body["theme"].clone())?;
+            preferences::save_theme(theme)?;
+            Ok(json!({"theme":theme}))
+        }
         "/api/conversation-image" => {
             let id = body["threadId"].as_str().context("缺少会话 ID")?;
             let message = usize::try_from(body["messageIndex"].as_u64().context("缺少消息位置")?)?;
@@ -269,8 +274,23 @@ fn respond(mut request: Request, token: &str, origin: &str, busy: &AtomicBool) {
         let name = if name.is_empty() { "index.html" } else { name };
         if let Some(file) = UI.get_file(name) {
             let mime = mime_guess::from_path(name).first_or_octet_stream();
-            let response = Response::from_data(file.contents().to_vec())
+            let bytes = if name == "index.html" {
+                let html = String::from_utf8_lossy(file.contents());
+                preferences::theme()
+                    .map(|theme| {
+                        html.replace(
+                            "<html lang=\"zh-CN\">",
+                            &format!("<html lang=\"zh-CN\" data-theme=\"{}\">", theme.as_str()),
+                        )
+                        .into_bytes()
+                    })
+                    .unwrap_or_else(|| file.contents().to_vec())
+            } else {
+                file.contents().to_vec()
+            };
+            let response = Response::from_data(bytes)
                 .with_header(header("Content-Type", mime.as_ref()))
+                .with_header(header("Cache-Control", "no-store"))
                 .with_header(header("X-Content-Type-Options", "nosniff"));
             let _ = request.respond(response);
         } else {

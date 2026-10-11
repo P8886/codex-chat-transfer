@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowRight, Check, CheckCircle2, ChevronDown, Download, Eye, FileArchive, Folder, FolderOpen, Layers, LoaderCircle, LockKeyhole, MessageSquare, RefreshCw, Search, Settings2, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle2, ChevronDown, Download, Eye, FileArchive, Folder, FolderOpen, Layers, LoaderCircle, LockKeyhole, MessageSquare, Moon, Sun, RefreshCw, Search, Settings2, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
 import { DeleteConfirmation, type DeleteTarget } from './delete-confirmation';
 import { ActionButton } from './action-button';
 import { TerminateConfirmation } from './terminate-confirmation';
@@ -8,6 +8,7 @@ import { ConversationPreview, type ConversationTarget } from './conversation-pre
 import { ProjectMappings, type MappingDraft, type SourceProject } from './project-mappings';
 import { RuntimeDiagnostics, type RuntimeProcess } from './runtime-diagnostics';
 import './style.css';
+import './theme.css';
 import appIcon from '../assets/app-icon.svg';
 
 type Project = { id: string; name: string; roots: string[]; nativeId: string | null };
@@ -15,7 +16,7 @@ type Thread = { id: string; title: string; cwd: string; projectId: string | null
 type Catalog = { home: string; projects: Project[]; threads: Thread[]; warnings: string[] };
 type PackedThread = { id: string; title: string; sourceCwd: string; sourceProjectId?: string; archived: boolean; bytes: number; expectedMessageIds: string[] };
 type Manifest = { version?: number; packageId: string; exportedAt: string; sourceProjects: SourceProject[]; threads: PackedThread[]; assets: unknown[]; warnings: string[] };
-type Bootstrap = { home: string; codexBinary: string | null; token: string; runtimeClosed: boolean; runtimeError: string | null; blockingProcesses?: RuntimeProcess[]; version: string };
+type Bootstrap = { home: string; codexBinary: string | null; token: string; runtimeClosed: boolean; runtimeError: string | null; blockingProcesses?: RuntimeProcess[]; version: string; theme?: 'light' | 'dark' | null };
 type Preview = { manifest: Manifest; conflicts: string[] };
 type Report = { status: 'verified' | 'alreadyImported'; imported: number; project: Project; projects?: Project[]; backup: string | null; verifiedMessageCount: number; warnings: string[] };
 
@@ -24,6 +25,8 @@ function name(path: string) { return path.split(/[\\/]/).at(-1) || path; }
 function date(timestamp: number) { return timestamp ? new Date(timestamp * 1000).toLocaleDateString('zh-CN') : '-'; }
 
 function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+  const [themeSaving, setThemeSaving] = useState(false);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [home, setHome] = useState('');
   const [binary, setBinary] = useState('');
@@ -63,6 +66,20 @@ function App() {
     return data;
   }
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    try { localStorage.setItem('cct-theme', theme); } catch {}
+  }, [theme]);
+
+  async function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next); setThemeSaving(true);
+    try { await api('theme', {theme:next}); }
+    catch(e) { setError(`主题已切换，但保存失败：${e instanceof Error ? e.message : String(e)}`); }
+    finally { setThemeSaving(false); }
+  }
+
   async function perform(label: string, operation: () => Promise<void>) {
     setError(''); setBusy(label);
     try { await operation(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -80,6 +97,7 @@ function App() {
     fetch('/api/bootstrap').then(r => r.json()).then(async (data: Bootstrap) => {
       if (cancelled) return;
       setBootstrap(data); setHome(data.home); setBinary(data.codexBinary || '');
+      if (data.theme === 'light' || data.theme === 'dark') setTheme(data.theme);
       setBusy('扫描聊天');
       try {
         const c = await api<Catalog>('catalog', { home: data.home }, data.token);
@@ -194,8 +212,9 @@ function App() {
     {deleteTarget && <DeleteConfirmation target={deleteTarget} busy={!!busy} error={deleteError} onCancel={() => setDeleteTarget(null)} onConfirm={confirmDelete} />}
     {conversation && <ConversationPreview key={`${conversation.package || conversation.home}:${conversation.threadId}`} target={conversation} token={bootstrap?.token || ''} onClose={() => setConversation(null)} />}
     <header className="header">
-      <div className="brand"><img src={appIcon} alt="" aria-hidden="true" /><h1>Codex Chat Transfer</h1><span className="version">v{bootstrap?.version || '0.5.3'}</span></div>
+      <div className="brand"><img src={appIcon} alt="" aria-hidden="true" /><h1>Codex Chat Transfer</h1><span className="version">v{bootstrap?.version || '0.6.0'}</span></div>
       <div className="header-actions">
+        <button className="icon-button" aria-label={theme === 'dark' ? '切换日间模式' : '切换夜间模式'} title={theme === 'dark' ? '切换日间模式' : '切换夜间模式'} aria-pressed={theme === 'dark'} disabled={!bootstrap || themeSaving} onClick={toggleTheme}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
         <button className={`runtime runtime-toggle ${bootstrap?.runtimeClosed ? 'ready' : 'blocked'}`} aria-label="后台进程状态" aria-expanded={runtimeExpanded} aria-controls="runtime-details" title="展开或收起后台进程列表" onClick={() => setRuntimeExpanded(!runtimeExpanded)}><span className="status-dot" />{bootstrap ? bootstrap.runtimeClosed ? '导入和删除可用' : '数据写入进程未退出' : '正在检测进程'}<ChevronDown size={14} className={runtimeExpanded ? 'expanded-chevron' : ''} /></button>
         <button className="icon-button" title="设置" aria-label="设置" onClick={() => setSettings(!settings)}><Settings2 size={18} /></button>
       </div>
