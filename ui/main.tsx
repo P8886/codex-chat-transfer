@@ -212,7 +212,7 @@ function App() {
     {deleteTarget && <DeleteConfirmation target={deleteTarget} busy={!!busy} error={deleteError} onCancel={() => setDeleteTarget(null)} onConfirm={confirmDelete} />}
     {conversation && <ConversationPreview key={`${conversation.package || conversation.home}:${conversation.threadId}`} target={conversation} token={bootstrap?.token || ''} onClose={() => setConversation(null)} />}
     <header className="header">
-      <div className="brand"><img src={appIcon} alt="" aria-hidden="true" /><h1>Codex Chat Transfer</h1><span className="version">v{bootstrap?.version || '0.6.0'}</span></div>
+      <div className="brand"><img src={appIcon} alt="" aria-hidden="true" /><h1>Codex Chat Transfer</h1><span className="version">v{bootstrap?.version || '0.6.1'}</span></div>
       <div className="header-actions">
         <button className="icon-button" aria-label={theme === 'dark' ? '切换日间模式' : '切换夜间模式'} title={theme === 'dark' ? '切换日间模式' : '切换夜间模式'} aria-pressed={theme === 'dark'} disabled={!bootstrap || themeSaving} onClick={toggleTheme}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
         <button className={`runtime runtime-toggle ${bootstrap?.runtimeClosed ? 'ready' : 'blocked'}`} aria-label="后台进程状态" aria-expanded={runtimeExpanded} aria-controls="runtime-details" title="展开或收起后台进程列表" onClick={() => setRuntimeExpanded(!runtimeExpanded)}><span className="status-dot" />{bootstrap ? bootstrap.runtimeClosed ? '导入和删除可用' : '数据写入进程未退出' : '正在检测进程'}<ChevronDown size={14} className={runtimeExpanded ? 'expanded-chevron' : ''} /></button>
@@ -242,7 +242,7 @@ function App() {
         {error && <div className="alert error" role="alert"><X size={18} /><span>{error}</span><button className="icon-button" aria-label="关闭错误" onClick={() => setError('')}><X size={15} /></button></div>}
         {busy && <div className="activity" role="status"><LoaderCircle className="spin" size={16} />{busy}</div>}
 
-        {tab === 'export' ? <>
+        {tab === 'export' ? <div className="export-view">
           <div className="export-bar"><span><strong>{selected.size}</strong> 条已选</span><div className="path-input"><input aria-label="导出文件夹" placeholder="选择导出文件夹" value={output} onChange={e => setOutput(e.target.value)} /><button className="icon-button" title="选择导出文件夹" aria-label="选择导出文件夹" disabled={!!busy} onClick={() => choose('folder', setOutput)}><FolderOpen size={18} /></button></div><ActionButton className="button primary" reason={exportReason} onClick={() => perform('打包聊天与历史依赖', async () => { setExported(null); const result = await api<{ output: string; manifest: Manifest }>('export', { home, threads: [...selected], outputDirectory: output }); setExported(result); })}><Download size={17} />导出 {selected.size || ''}</ActionButton><ActionButton className="button danger" reason={bulkDeleteReason} onClick={() => requestDelete([...selected])}><Trash2 size={17} />删除 {selected.size || ''}</ActionButton></div>
           {deleted && <div className="result" role="status"><CheckCircle2 size={20} /><div><strong>已删除 {deleted.deleted} 条会话</strong><p className="mono">备份：{deleted.backup}</p></div></div>}
           <div className="section-heading"><div><h2>{projectFilter === '*' ? '全部聊天' : projectFilter === '-' ? '无项目' : catalog.projects.find(p => p.id === projectFilter)?.name}</h2><span>{filtered.length} 条聊天</span></div><label className="check-label"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} />包含归档</label></div>
@@ -252,7 +252,7 @@ function App() {
             {!filtered.length && <tr><td colSpan={5} className="empty">{busy ? '正在读取聊天' : '没有匹配的聊天'}</td></tr>}
           </tbody></table></div>
           {exported && <div className="result" role="status"><CheckCircle2 size={22} /><div><strong>已导出 {exported.manifest.threads.length} 条聊天</strong><p className="mono">{exported.output}</p><span>{exported.manifest.sourceProjects?.length || 0} 个项目分组 · {exported.manifest.assets.length} 个图片引用 · 历史依赖已合并 · 文件校验已完成</span>{exported.manifest.warnings.length > 0 && <details><summary>{exported.manifest.warnings.length} 条附件警告</summary>{exported.manifest.warnings.map((w, i) => <p key={i}>{w}</p>)}</details>}</div></div>}
-        </> : <>
+        </div> : <div className="import-view">
           <div className="section-heading"><div><h2>导入到本机项目</h2><span>{preview ? `${preview.manifest.threads.length} 条聊天待导入` : '尚未选择导出包'}</span></div><ShieldCheck size={23} className="muted" /></div>
           <section className="import-fields">
             <label className="field-label">导出包<div className="path-input"><FileArchive size={18} /><input aria-label="导出包路径" placeholder="选择 .cct.zip 导出包" value={packagePath} onChange={e => { setPackagePath(e.target.value); setPreview(null); setReport(null); }} /><button className="icon-button" title="选择导出包" aria-label="选择导出包" disabled={!!busy} onClick={() => choose('package', p => { setPackagePath(p); setPreview(null); setReport(null); })}><FolderOpen size={18} /></button></div></label>
@@ -271,7 +271,7 @@ function App() {
             <div className="import-bar"><span><ShieldCheck size={16} />{preserveGroups ? `${groups.length} 个项目分组 · 整包备份与校验` : '完整校验后保存项目归属'}</span><ActionButton className="button primary" reason={importReason} onClick={importPackage}><Upload size={17} />导入 {preview.manifest.threads.length} 条</ActionButton></div>
           </>}
           {report && <div className="result import-result" role="status"><CheckCircle2 size={24} /><div><strong>{report.status === 'alreadyImported' ? '此包已导入，项目归属已再次核对，未重复写入' : (report.projects?.length || 1) > 1 ? `${report.imported} 条聊天已按 ${report.projects!.length} 个项目分组导入` : `${report.imported} 条聊天已验证并归入 ${report.project.name}`}</strong>{(report.projects?.length || 1) > 1 && <div className="imported-projects">{report.projects!.map(p => <span key={p.id}><Folder size={15} />{p.name}</span>)}</div>}<div className="verification"><span><Check size={15} />原生项目 ID</span><span><Check size={15} />侧栏项目归属</span><span><Check size={15} />已解除无项目标记</span><span><Check size={15} />聊天正文索引</span></div>{report.backup && <p className="mono">备份：{report.backup}</p>}<span>{report.status === 'verified' ? `${report.verifiedMessageCount} 条消息可读取。重新打开 Codex 后查看项目。` : '项目归属与目录已再次核对。'}</span></div></div>}
-        </>}
+        </div>}
         {report && report.warnings.length > 0 && <details className="warnings" open><summary>{report.warnings.length} 条导入提醒</summary>{report.warnings.map((w, i) => <p key={i}>{w}</p>)}</details>}
         {catalog.warnings.length > 0 && <details className="warnings"><summary>{catalog.warnings.length} 条扫描警告</summary>{catalog.warnings.map((w, i) => <p key={i}>{w}</p>)}</details>}
       </main>

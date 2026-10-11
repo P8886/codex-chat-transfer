@@ -1,5 +1,35 @@
 import { test, expect } from '@playwright/test';
 
+test('desktop lists scroll independently while export controls and table headings stay fixed',async({page})=>{
+  await page.route('**/api/catalog',route=>route.fulfill({json:{home:'C:\\test',projects:Array.from({length:40},(_,i)=>({id:`project-${i}`,name:`Project ${i}`,roots:[]})),threads:Array.from({length:100},(_,i)=>({id:`thread-${i}`,title:`Chat ${i}`,cwd:'D:\\project',projectId:'project-0',archived:false,updatedAt:1})),warnings:[]}}));
+  await page.route('**/api/preview',route=>route.fulfill({json:{manifest:{...manifest,threads:Array.from({length:100},(_,i)=>({...manifest.threads[0],id:`packed-${i}`}))},conflicts:[]}}));
+  await page.goto('/');
+  await expect(page.getByText('Chat 0',{exact:true})).toBeVisible();
+  for(const viewport of [{width:1280,height:900},{width:1000,height:650}]) {
+    await page.setViewportSize(viewport);
+    const bar=page.locator('.export-bar');const before=await bar.boundingBox();
+    const list=page.locator('.export-view > .table-wrap');
+    expect(await list.evaluate(el=>el.scrollHeight>el.clientHeight)).toBe(true);
+    const heading=await list.locator('th').first().boundingBox();
+    await list.hover();await page.mouse.wheel(0,900);
+    await expect.poll(()=>list.evaluate(el=>el.scrollTop)).toBeGreaterThan(0);
+    expect((await bar.boundingBox())!.y).toBe(before!.y);
+    expect((await list.locator('th').first().boundingBox())!.y).toBeCloseTo(heading!.y,0);
+    const sidebar=page.locator('.sidebar');await sidebar.hover();await page.mouse.wheel(0,500);
+    await expect.poll(()=>sidebar.evaluate(el=>el.scrollTop)).toBeGreaterThan(0);
+    expect(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight&&scrollY===0)).toBe(true);
+    await page.screenshot({path:`test-results/internal-scroll-${viewport.height}.png`});
+  }
+  await page.getByRole('button',{name:'导入到本机',exact:true}).click();
+  await page.getByRole('textbox',{name:'导出包路径'}).fill('D:\\many.cct.zip');
+  await page.getByRole('button',{name:'校验包',exact:true}).click();
+  const pane=page.locator('.import-view');
+  await expect.poll(()=>pane.evaluate(el=>el.scrollHeight>el.clientHeight)).toBe(true);
+  await pane.evaluate(el=>el.scrollTop=el.scrollHeight);
+  await expect(page.getByRole('button',{name:'导入 100 条',exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight&&scrollY===0)).toBe(true);
+});
+
 test('night mode covers exports, imports and preview dialogs and persists after reload',async({page})=>{
   let saved:'light'|'dark'='light';
   const writes:string[]=[];
