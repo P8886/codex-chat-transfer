@@ -59,7 +59,8 @@ pub(crate) fn delete_checked(
     );
     let mut rollouts = BTreeSet::new();
     let mut found = BTreeSet::new();
-
+    let mut history_ids = ids.clone();
+    let mut dependencies = Vec::new();
     for folder in ["sessions", "archived_sessions"] {
         let root = home.join(folder);
         if !root.exists() {
@@ -78,21 +79,15 @@ pub(crate) fn delete_checked(
             let meta = model::first_metadata(entry.path())
                 .with_context(|| format!("无法检查会话历史依赖：{}", entry.path().display()))?;
             let id = meta["payload"]["id"].as_str().context("会话缺少 ID")?;
-
-            if !ids.contains(id)
-                && meta["payload"]["history_base"]["thread_id"]
-                    .as_str()
-                    .is_some_and(|base| ids.contains(base))
-            {
-                let title = catalog
-                    .threads
-                    .iter()
-                    .find(|t| t.id == id)
-                    .map(|t| t.title.as_str())
-                    .unwrap_or(id);
-                bail!("会话 {title} 依赖待删除的前段历史，请一起选择或取消删除其前段会话");
+            if !ids.contains(id) {
+                if let Some(base) = meta["payload"]["history_base"]["thread_id"].as_str() {
+                    dependencies.push((id.to_owned(), base.to_owned()));
+                }
             }
             if ids.contains(id) {
+                if let Some(physical_id) = model::physical_rollout_id(entry.path()) {
+                    history_ids.insert(physical_id);
+                }
                 found.insert(id.to_owned());
                 let path = entry.path().canonicalize()?;
                 ensure!(
@@ -103,7 +98,17 @@ pub(crate) fn delete_checked(
             }
         }
     }
-
+    for (id, base) in dependencies {
+        if history_ids.contains(&base) {
+            let title = catalog
+                .threads
+                .iter()
+                .find(|t| t.id == id)
+                .map(|t| t.title.as_str())
+                .unwrap_or(&id);
+            bail!("会话 {title} 依赖待删除的前段历史，请一起选择或取消删除其前段会话");
+        }
+    }
     ensure!(
         ids.is_subset(&found),
         "待删除会话文件发生变化或已为空，请刷新列表后重试"

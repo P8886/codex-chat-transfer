@@ -53,6 +53,154 @@ fn bare_home() -> TempDir {
     temp
 }
 
+fn prefer_rollout(home: &Path, id: &str, path: &Path) {
+    let db = rusqlite::Connection::open(home.join("state_5.sqlite")).unwrap();
+    db.execute_batch("CREATE TABLE IF NOT EXISTS threads(id TEXT PRIMARY KEY,rollout_path TEXT,title TEXT,updated_at INTEGER);").unwrap();
+    db.execute(
+        "INSERT OR REPLACE INTO threads VALUES(?1,?2,'Native chat',0)",
+        rusqlite::params![id, path.to_string_lossy()],
+    )
+    .unwrap();
+}
+
+#[test]
+fn native_physical_history_ids_are_resolved_even_with_the_same_chat_metadata_id() {
+    let home = bare_home();
+    let out = TempDir::new().unwrap();
+    let logical = Uuid::new_v4().to_string();
+    let physical = Uuid::new_v4().to_string();
+    let next = Uuid::new_v4().to_string();
+    let original = fixture(home.path(), &logical, None, "Original earliest message");
+    let base = original.with_file_name(format!(
+        "rollout-2026-10-01T01-00-00-{logical}_{physical}.jsonl"
+    ));
+    fs::rename(&original, &base).unwrap();
+    let latest = fixture(
+        home.path(),
+        &logical,
+        Some(
+            json!({"thread_id":physical,"end_ordinal_exclusive":5,"end_byte_offset":fs::metadata(&base).unwrap().len()}),
+        ),
+        "Current message",
+    );
+    let current = latest.with_file_name(format!(
+        "rollout-2026-10-01T01-01-00-{logical}_{next}.jsonl"
+    ));
+    fs::rename(latest, &current).unwrap();
+    prefer_rollout(home.path(), &logical, &current);
+    assert_eq!(model::scan(home.path()).unwrap().threads.len(), 1);
+    let preview = crate::conversation::preview(Some(home.path()), None, &logical, 0).unwrap();
+    assert!(preview.warnings.is_empty());
+    assert_eq!(preview.total, 4);
+    assert_eq!(preview.messages[0].text, "Original earliest message");
+    let package = out.path().join("native.cct.zip");
+    assert_eq!(
+        bundle::export(home.path(), std::slice::from_ref(&logical), &package)
+            .unwrap()
+            .threads[0]
+            .expected_message_ids
+            .len(),
+        4
+    );
+    assert_eq!(
+        crate::conversation::preview(None, Some(&package), &logical, 0)
+            .unwrap()
+            .messages[0]
+            .text,
+        "Original earliest message"
+    );
+    if let Ok(binary) = std::env::var("CODEX_TRANSFER_TEST_CODEX_EXE") {
+        let target = bare_home();
+        let destination = out.path().join("native-target");
+        fs::create_dir(&destination).unwrap();
+        let options = ImportOptions {
+            home: target.path().to_path_buf(),
+            package: package.clone(),
+            project_id: None,
+            target_dir: Some(destination),
+            project_name: Some("Native snapshot transfer".into()),
+            replace: false,
+            codex_binary: Some(binary.into()),
+            project_mappings: None,
+        };
+        let report = importer::import_checked(&options, allow_isolated_fixture).unwrap();
+        assert_eq!(report.verified_message_count, 4);
+        let restored =
+            crate::conversation::preview(Some(target.path()), None, &logical, 0).unwrap();
+        assert_eq!(restored.messages[0].text, "Original earliest message");
+        assert!(restored.warnings.is_empty());
+    }
+    let other = Uuid::new_v4().to_string();
+    fixture(
+        home.path(),
+        &other,
+        Some(json!({"thread_id":physical,"end_ordinal_exclusive":5})),
+        "Dependent chat",
+    );
+    let options = crate::deletion::DeleteOptions {
+        home: home.path().to_path_buf(),
+        threads: vec![logical],
+        confirmed: true,
+    };
+    assert!(crate::deletion::delete_checked(&options, || Ok(()))
+        .unwrap_err()
+        .to_string()
+        .contains("依赖"));
+    assert!(base.exists());
+    assert!(current.exists());
+}
+
+#[test]
+fn a_native_same_chat_reference_is_not_a_history_cycle() {
+    let home = bare_home();
+    let logical = Uuid::new_v4().to_string();
+    let next = Uuid::new_v4().to_string();
+    let base = fixture(home.path(), &logical, None, "Same chat earliest message");
+    let parent_bytes = fs::metadata(&base).unwrap().len();
+    let saved = fs::read(&base).unwrap();
+    let latest = fixture(
+        home.path(),
+        &logical,
+        Some(json!({"thread_id":logical,"end_ordinal_exclusive":5,"end_byte_offset":parent_bytes})),
+        "Continuation",
+    );
+    let current = latest.with_file_name(format!(
+        "rollout-2026-10-01T01-01-00-{logical}_{next}.jsonl"
+    ));
+    fs::rename(&latest, &current).unwrap();
+    fs::write(&base, saved).unwrap();
+    prefer_rollout(home.path(), &logical, &current);
+    let preview = crate::conversation::preview(Some(home.path()), None, &logical, 0).unwrap();
+    assert!(preview.warnings.is_empty());
+    assert_eq!(preview.total, 4);
+}
+
+#[test]
+fn blank_lines_count_toward_physical_history_byte_offsets() {
+    let home = bare_home();
+    let id = Uuid::new_v4().to_string();
+    let child = Uuid::new_v4().to_string();
+    let base = fixture(home.path(), &id, None, "Before blank lines");
+    let rows = bundle::decode_records(&fs::read(&base).unwrap()).unwrap();
+    let mut bytes = Vec::new();
+    for row in rows.iter().take(4) {
+        bytes.extend(bundle::encode_records(std::slice::from_ref(row)).unwrap());
+        bytes.push(b'\n');
+    }
+    let end = bytes.len();
+    bytes.extend(bundle::encode_records(&rows[4..]).unwrap());
+    fs::write(&base, bytes).unwrap();
+    fixture(
+        home.path(),
+        &child,
+        Some(json!({"thread_id":id,"end_ordinal_exclusive":4,"end_byte_offset":end})),
+        "After blank lines",
+    );
+    let preview = crate::conversation::preview(Some(home.path()), None, &child, 0).unwrap();
+    assert!(preview.warnings.is_empty());
+    assert_eq!(preview.total, 4);
+}
+
 #[test]
 fn deleting_one_thread_ignores_unrelated_empty_session_files() {
     let home = bare_home();

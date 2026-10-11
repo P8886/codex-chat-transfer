@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use uuid::Uuid;
+use walkdir::WalkDir;
 use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 
 const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -101,16 +102,83 @@ fn read_records(path: &Path) -> Result<Vec<(u64, usize, Value)>> {
         .enumerate()
     {
         let line = line?;
-        if line.is_empty() {
+        let start = offset;
+        offset += line.len() + 1;
+        if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
         let row: Value = serde_json::from_slice(&line)
             .with_context(|| format!("{} 第 {} 行 JSON 无效", path.display(), index + 1))?;
-        let ordinal = row["ordinal"].as_u64().unwrap_or(index as u64);
-        rows.push((ordinal, offset, row));
-        offset += line.len() + 1;
+        let ordinal = row["ordinal"].as_u64().unwrap_or(rows.len() as u64);
+        rows.push((ordinal, start, row));
     }
     Ok(rows)
+}
+
+fn history_catalog(
+    home: &Path,
+    visible: &BTreeMap<String, Thread>,
+) -> Result<BTreeMap<String, Thread>> {
+    let mut histories = visible.clone();
+    let mut files: BTreeMap<String, Vec<Thread>> = BTreeMap::new();
+    for folder in ["sessions", "archived_sessions"] {
+        let root = home.join(folder);
+        if !root.exists() {
+            continue;
+        }
+        for entry in WalkDir::new(root).follow_links(false) {
+            let entry = entry?;
+            if !entry.file_type().is_file() || entry.path().extension().is_none_or(|e| e != "jsonl")
+            {
+                continue;
+            }
+            let Some(id) = crate::model::physical_rollout_id(entry.path()) else {
+                continue;
+            };
+            let Ok(meta) = first_metadata(entry.path()) else {
+                continue;
+            };
+            let Some(logical_id) = meta["payload"]["id"].as_str() else {
+                continue;
+            };
+            if Uuid::parse_str(logical_id).is_err() {
+                continue;
+            }
+            let title = visible
+                .get(logical_id)
+                .map(|t| t.title.clone())
+                .unwrap_or_else(|| logical_id.to_owned());
+            files.entry(id.clone()).or_default().push(Thread {
+                id,
+                title,
+                cwd: meta["payload"]["cwd"].as_str().unwrap_or("").to_owned(),
+                project_id: None,
+                archived: folder == "archived_sessions",
+                updated_at: 0,
+                export_error: None,
+                path: entry.path().to_path_buf(),
+            });
+        }
+    }
+    // Physical rollout IDs can differ from the visible chat ID after a native history fork.
+    for (id, mut candidates) in files {
+        let mut selected = candidates.remove(0);
+        if !candidates.is_empty() {
+            let hash = digest_file(&selected.path)?;
+            if candidates
+                .iter()
+                .any(|other| match digest_file(&other.path) {
+                    Ok(value) => value != hash,
+                    Err(_) => true,
+                })
+            {
+                selected.export_error =
+                    Some(format!("内部历史 ID {id} 对应不同文件，无法确定来源"));
+            }
+        }
+        histories.insert(id, selected);
+    }
+    Ok(histories)
 }
 
 // Flatten inherited prefixes before migration, so byte offsets never point into rewritten files.
@@ -118,14 +186,15 @@ fn flatten(
     thread: &Thread,
     catalog: &BTreeMap<String, Thread>,
     cutoff: Option<u64>,
-    visiting: &mut BTreeSet<String>,
+    visiting: &mut BTreeSet<PathBuf>,
     snapshots: &mut BTreeMap<PathBuf, String>,
 ) -> Result<Vec<Value>> {
     if let Some(error) = &thread.export_error {
         anyhow::bail!("{error}");
     }
+    let identity = thread.path.canonicalize()?;
     ensure!(
-        visiting.insert(thread.id.clone()),
+        visiting.insert(identity.clone()),
         "会话历史依赖成环：{}",
         thread.id
     );
@@ -142,7 +211,7 @@ fn flatten(
     if let Some(base_id) = base["thread_id"].as_str() {
         let source = catalog.get(base_id).with_context(|| {
             format!(
-                "会话 {} 缺少前段历史 {}；请从 A 电脑完整导出",
+                "会话 {} 未找到内部历史文件 {}；不能仅凭此判断聊天内容丢失",
                 thread.title, base_id
             )
         })?;
@@ -164,7 +233,8 @@ fn flatten(
                 .unwrap_or(fs::metadata(&source.path)?.len());
             ensure!(
                 actual == expected_offset,
-                "前段历史的字节边界不匹配：{base_id}；不能保证历史完整"
+                "会话 {} 的内部历史 {base_id} 字节边界不匹配（记录 {expected_offset}，文件 {actual}）：{}",
+                thread.title, source.path.display()
             );
         }
         result.extend(flatten(source, catalog, Some(end), visiting, snapshots)?);
@@ -184,7 +254,7 @@ fn flatten(
             result.push(row);
         }
     }
-    visiting.remove(&thread.id);
+    visiting.remove(&identity);
     Ok(result)
 }
 
@@ -195,16 +265,23 @@ pub fn local_preview_records(home: &Path, id: &str) -> Result<(String, Vec<Value
         .map(|t| (t.id.clone(), t))
         .collect();
     let thread = catalog.get(id).context("本机未找到该会话")?;
+    let histories = history_catalog(home, &catalog)?;
     let mut snapshots = BTreeMap::new();
     let mut warnings = Vec::new();
-    let records = match flatten(thread, &catalog, None, &mut BTreeSet::new(), &mut snapshots) {
+    let records = match flatten(
+        thread,
+        &histories,
+        None,
+        &mut BTreeSet::new(),
+        &mut snapshots,
+    ) {
         Ok(records) => records,
         Err(error) => {
             if let Some(error) = &thread.export_error {
                 anyhow::bail!("{error}");
             }
             warnings.push(format!(
-                "历史不完整，仅显示当前会话文件中的现有内容：{error:#}"
+                "前段历史未能解析，目前仅显示当前文件中的消息（不代表原聊天已丢失）：{error:#}"
             ));
             read_records(&thread.path)?
                 .into_iter()
@@ -336,6 +413,7 @@ pub fn export(home: &Path, ids: &[String], output: &Path) -> Result<Manifest> {
         .into_iter()
         .map(|t| (t.id.clone(), t))
         .collect();
+    let histories = history_catalog(home, &catalog)?;
     let mut manifest = Manifest {
         format: "codex-chat-transfer".into(),
         version: 2,
@@ -382,7 +460,7 @@ pub fn export(home: &Path, ids: &[String], output: &Path) -> Result<Manifest> {
         let mut records = vec![meta];
         records.extend(flatten(
             thread,
-            &catalog,
+            &histories,
             None,
             &mut BTreeSet::new(),
             &mut snapshots,

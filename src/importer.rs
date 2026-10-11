@@ -601,6 +601,12 @@ pub(crate) fn import_checked(
         collisions.len()
     );
     if !collisions.is_empty() {
+        let mut replaced_history_ids: BTreeSet<String> = ids.iter().cloned().collect();
+        for thread in &collisions {
+            if let Some(id) = crate::model::physical_rollout_id(&thread.path) {
+                replaced_history_ids.insert(id);
+            }
+        }
         for thread in &catalog.threads {
             if ids.contains(&thread.id) {
                 continue;
@@ -608,7 +614,7 @@ pub(crate) fn import_checked(
             let meta = crate::model::first_metadata(&thread.path)?;
             if meta["payload"]["history_base"]["thread_id"]
                 .as_str()
-                .is_some_and(|id| ids.iter().any(|i| i == id))
+                .is_some_and(|id| replaced_history_ids.contains(id))
             {
                 bail!(
                     "{} 依赖即将被替换的历史；必须一起迁移或使用新的目标数据目录",

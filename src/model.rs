@@ -96,6 +96,19 @@ pub fn first_metadata(path: &Path) -> Result<Value> {
     Ok(row)
 }
 
+pub(crate) fn physical_rollout_id(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    if !stem.starts_with("rollout-") || stem.len() < 37 {
+        return None;
+    }
+    let start = stem.len() - 36;
+    let id = stem.get(start..)?;
+    if !matches!(stem.as_bytes()[start - 1], b'-' | b'_') || uuid::Uuid::parse_str(id).is_err() {
+        return None;
+    }
+    Some(id.to_owned())
+}
+
 pub fn scan(home: &Path) -> Result<Catalog> {
     if !home.is_dir() {
         bail!("Codex 数据目录不存在：{}", home.display());
