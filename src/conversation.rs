@@ -1,8 +1,16 @@
 use crate::bundle;
 use anyhow::{ensure, Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::Serialize;
 use serde_json::Value;
 use std::path::Path;
+
+#[derive(Debug, Serialize)]
+pub struct ImageRef {
+    pub label: String,
+    #[serde(skip)]
+    reference: String,
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -11,6 +19,45 @@ pub struct Message {
     pub text: String,
     pub timestamp: Option<String>,
     pub truncated: bool,
+    pub images: Vec<ImageRef>,
+}
+
+fn image_refs(value: &Value) -> Vec<ImageRef> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|part| {
+            let reference = if let Some(reference) = part.as_str() {
+                reference
+            } else {
+                if !matches!(
+                    part["type"].as_str(),
+                    Some("local_image" | "image" | "input_image" | "Image")
+                ) {
+                    return None;
+                }
+                part["path"]
+                    .as_str()
+                    .or_else(|| part["image_url"].as_str())
+                    .or_else(|| part["image_url"]["url"].as_str())
+                    .or_else(|| part["url"].as_str())?
+            };
+            let label = if reference.starts_with("data:") {
+                "内嵌图片".to_owned()
+            } else {
+                reference
+                    .rsplit(['/', '\\'])
+                    .next()
+                    .unwrap_or("图片")
+                    .to_owned()
+            };
+            Some(ImageRef {
+                label,
+                reference: reference.to_owned(),
+            })
+        })
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -30,21 +77,7 @@ fn content(value: &Value) -> String {
     if let Some(parts) = value.as_array() {
         return parts
             .iter()
-            .filter_map(|p| {
-                if let Some(text) = p["text"].as_str() {
-                    Some(text.to_owned())
-                } else if matches!(
-                    p["type"].as_str(),
-                    Some("local_image" | "image" | "input_image")
-                ) {
-                    Some(format!(
-                        "[图片] {}",
-                        p["path"].as_str().unwrap_or("图片附件")
-                    ))
-                } else {
-                    None
-                }
-            })
+            .filter_map(|part| part["text"].as_str().map(str::to_owned))
             .collect::<Vec<_>>()
             .join("\n");
     }
@@ -108,9 +141,15 @@ pub fn messages(records: &[Value]) -> Vec<Message> {
         } else {
             None
         };
-
+        let images = if row["type"] == "event_msg" && p["type"] == "item_completed" {
+            image_refs(&item["content"])
+        } else if row["type"] == "response_item" {
+            image_refs(&p["content"])
+        } else {
+            image_refs(&p["images"])
+        };
         if let Some((channel, role, mut text)) = candidate {
-            if !text.is_empty() {
+            if !text.is_empty() || !images.is_empty() {
                 let boundary = text.char_indices().nth(128 * 1024).map(|(index, _)| index);
                 if let Some(index) = boundary {
                     text.truncate(index);
@@ -122,6 +161,7 @@ pub fn messages(records: &[Value]) -> Vec<Message> {
                         text,
                         timestamp: row["timestamp"].as_str().map(str::to_owned),
                         truncated: boundary.is_some(),
+                        images,
                     },
                 ));
             }
@@ -132,6 +172,82 @@ pub fn messages(records: &[Value]) -> Vec<Message> {
     }
     flush(&mut channels, &mut output);
     output
+}
+
+pub fn image(
+    home: Option<&Path>,
+    package_path: Option<&Path>,
+    id: &str,
+    message_index: usize,
+    image_index: usize,
+) -> Result<String> {
+    ensure!(
+        home.is_some() != package_path.is_some(),
+        "请选择本机会话或导出包"
+    );
+    let package = package_path.map(bundle::load).transpose()?;
+    let records = if let Some(home) = home {
+        bundle::local_preview_records(home, id)?.1
+    } else {
+        let packed = package.as_ref().context("缺少导出包")?;
+        let thread = packed
+            .manifest
+            .threads
+            .iter()
+            .find(|t| t.id == id)
+            .context("会话不存在")?;
+        bundle::decode_records(packed.files.get(&thread.file).context("会话文件缺失")?)?
+    };
+    let messages = messages(&records);
+    let reference = &messages
+        .get(message_index)
+        .context("消息不存在")?
+        .images
+        .get(image_index)
+        .context("图片引用不存在")?
+        .reference;
+    const LIMIT: usize = 20 * 1024 * 1024;
+    let bytes = if reference.starts_with("data:") {
+        ensure!(reference.len() <= LIMIT * 4 / 3 + 1024, "图片超过 20 MiB");
+        let (header, data) = reference.split_once(',').context("图片数据无效")?;
+        ensure!(header.ends_with(";base64"), "不支持此内嵌图片格式");
+        STANDARD.decode(data).context("图片数据无效")?
+    } else if let Some(packed) = &package {
+        let asset = packed
+            .manifest
+            .assets
+            .iter()
+            .find(|a| crate::model::path_key(&a.source_path) == crate::model::path_key(reference))
+            .context("导出包未包含这张图片")?;
+        let bytes = packed.files.get(&asset.file).context("包内图片缺失")?;
+        ensure!(bytes.len() <= LIMIT, "图片超过 20 MiB");
+        bytes.clone()
+    } else {
+        ensure!(
+            !reference.starts_with("http://") && !reference.starts_with("https://"),
+            "远程图片不会自动加载"
+        );
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        std::fs::File::open(reference)
+            .context("原图不存在或无法读取")?
+            .take((LIMIT + 1) as u64)
+            .read_to_end(&mut bytes)?;
+        bytes
+    };
+    ensure!(bytes.len() <= LIMIT, "图片超过 20 MiB");
+    let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        "image/jpeg"
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        "image/gif"
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        "image/webp"
+    } else {
+        anyhow::bail!("不支持的图片格式（支持 PNG、JPEG、GIF、WebP）")
+    };
+    Ok(format!("data:{mime};base64,{}", STANDARD.encode(bytes)))
 }
 
 pub fn preview(
@@ -190,7 +306,8 @@ mod tests {
         ];
         let result = messages(&rows);
         assert_eq!(result.len(), 3);
-        assert_eq!(result[0].text, "你好\n[图片] photo.png");
+        assert_eq!(result[0].text, "你好");
+        assert_eq!(result[0].images[0].label, "photo.png");
         assert_eq!(result[1].role, "assistant");
         assert_eq!(result[2].text, "旧格式回复");
     }
@@ -218,5 +335,16 @@ mod tests {
             json!({"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","text":"Plain reply"}}}),
         ];
         assert_eq!(messages(&rows)[0].text, "Plain reply");
+    }
+
+    #[test]
+    fn image_only_messages_and_embedded_images_are_retained() {
+        let rows = vec![
+            serde_json::json!({"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,dGVzdA=="}]}}),
+        ];
+        let result = messages(&rows);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].images.len(), 1);
+        assert_eq!(result[0].images[0].label, "内嵌图片");
     }
 }

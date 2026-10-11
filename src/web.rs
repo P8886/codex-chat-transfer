@@ -67,6 +67,16 @@ fn api(request: &mut Request, token: &str, origin: &str) -> Result<Value> {
         ))
     };
     match request.url() {
+        "/api/conversation-image" => {
+            let id = body["threadId"].as_str().context("缺少会话 ID")?;
+            let message = usize::try_from(body["messageIndex"].as_u64().context("缺少消息位置")?)?;
+            let image = usize::try_from(body["imageIndex"].as_u64().context("缺少图片位置")?)?;
+            let home = body["home"].as_str().map(PathBuf::from);
+            let package = body["package"].as_str().map(PathBuf::from);
+            Ok(
+                json!({"dataUrl":conversation::image(home.as_deref(),package.as_deref(),id,message,image)?}),
+            )
+        }
         "/api/runtime/terminate" => Ok(serde_json::to_value(runtime::terminate(
             &serde_json::from_value(body)?,
         )?)?),

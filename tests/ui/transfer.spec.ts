@@ -1,5 +1,32 @@
 import { test, expect } from '@playwright/test';
 
+test('local and packaged image previews load, enlarge and report missing pictures',async({page})=>{
+  await page.goto('/');
+  const dataUrl=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=200;canvas.height=120;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#209979';ctx.fillRect(0,0,200,120);ctx.fillStyle='#edc65c';ctx.fillRect(40,30,120,60);return canvas.toDataURL('image/png');});
+  const requests:Record<string,unknown>[]=[];
+  await page.route('**/api/conversation',route=>route.fulfill({json:{title:'Image preview',total:1,offset:0,messages:[{role:'user',text:'图片正文',timestamp:null,truncated:false,images:[{label:'photo.png'},{label:'missing.png'}]}]}}));
+  await page.route('**/api/conversation-image',async route=>{const body=route.request().postDataJSON();requests.push(body);await route.fulfill(body.imageIndex===0?{json:{dataUrl}}:{status:400,json:{error:'原图不存在'}});});
+  await page.getByRole('button',{name:'预览 子任务勾选状态更新',exact:true}).click();
+  let preview=page.getByRole('dialog',{name:'会话预览'});
+  await expect(preview.getByRole('img',{name:'photo.png',exact:true})).toBeVisible();
+  expect(await preview.getByRole('img',{name:'photo.png',exact:true}).evaluate(el=>(el as HTMLImageElement).naturalWidth)).toBe(200);
+  await expect(preview.getByText('图片不可用',{exact:true})).toBeVisible();
+  await preview.getByRole('button',{name:'查看图片 photo.png',exact:true}).click();
+  const viewer=page.getByRole('dialog',{name:'图片查看'});
+  await expect(viewer.getByRole('img',{name:'photo.png',exact:true})).toBeVisible();
+  await page.screenshot({path:'test-results/image-desktop.png'});
+  await page.keyboard.press('Escape');await expect(viewer).not.toBeVisible();await expect(preview).toBeVisible();
+  await preview.getByRole('button',{name:'关闭预览'}).click();
+  await page.getByRole('button',{name:'导入到本机',exact:true}).click();
+  await page.getByRole('textbox',{name:'导出包路径'}).fill('D:\\images.cct.zip');await page.getByRole('button',{name:'校验包',exact:true}).click();
+  await page.getByRole('button',{name:'预览 子任务勾选状态更新',exact:true}).click();
+  preview=page.getByRole('dialog',{name:'会话预览'});
+  await expect(preview.getByRole('img',{name:'photo.png',exact:true})).toBeVisible();
+  expect(requests.some(r=>r.package==='D:\\images.cct.zip')).toBe(true);
+  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/image-mobile.png'});
+  expect(await preview.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+});
+
 test('header diagnostics, disabled reasons and confirmed process termination are connected',async({page})=>{
   const process={pid:1234,name:'codex.exe',source:'编辑器的 Codex 扩展后台',reason:'会话服务仍在运行',executable:'C:\\codex.exe',parent:'Code.exe',startTime:100};
   let blocked=true; const stops:unknown[]=[];

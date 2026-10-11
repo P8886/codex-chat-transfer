@@ -53,6 +53,69 @@ fn bare_home() -> TempDir {
     temp
 }
 
+#[test]
+fn preview_images_are_read_from_local_files_and_from_the_package_after_source_removal() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let source = bare_home();
+    let work = TempDir::new().unwrap();
+    let id = Uuid::new_v4().to_string();
+    let bytes=STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=").unwrap();
+    let image = work.path().join("photo.png");
+    fs::write(&image, &bytes).unwrap();
+    let path = fixture(source.path(), &id, None, "Image preview");
+    let mut rows = bundle::decode_records(&fs::read(&path).unwrap()).unwrap();
+    rows[2]["payload"]["item"]["content"]
+        .as_array_mut()
+        .unwrap()
+        .extend([
+            json!({"type":"local_image","path":image}),
+            json!({"type":"local_image","path":work.path().join("missing.png")}),
+        ]);
+    fs::write(&path, bundle::encode_records(&rows).unwrap()).unwrap();
+    let expected = format!("data:image/png;base64,{}", STANDARD.encode(&bytes));
+    assert_eq!(
+        crate::conversation::preview(Some(source.path()), None, &id, 0)
+            .unwrap()
+            .messages[0]
+            .images
+            .len(),
+        2
+    );
+    assert_eq!(
+        crate::conversation::image(Some(source.path()), None, &id, 0, 0).unwrap(),
+        expected
+    );
+    assert!(crate::conversation::image(Some(source.path()), None, &id, 0, 1).is_err());
+    let package = work.path().join("images.cct.zip");
+    bundle::export(source.path(), std::slice::from_ref(&id), &package).unwrap();
+    fs::remove_file(&image).unwrap();
+    assert_eq!(
+        crate::conversation::image(None, Some(&package), &id, 0, 0).unwrap(),
+        expected
+    );
+    assert!(crate::conversation::image(None, Some(&package), &id, 0, 1).is_err());
+    if let Ok(binary) = std::env::var("CODEX_TRANSFER_TEST_CODEX_EXE") {
+        let target = bare_home();
+        let destination = work.path().join("image-project");
+        fs::create_dir(&destination).unwrap();
+        let options = ImportOptions {
+            home: target.path().to_path_buf(),
+            package,
+            project_id: None,
+            target_dir: Some(destination),
+            project_name: Some("Images".into()),
+            replace: false,
+            codex_binary: Some(binary.into()),
+            project_mappings: None,
+        };
+        importer::import_checked(&options, allow_isolated_fixture).unwrap();
+        assert_eq!(
+            crate::conversation::image(Some(target.path()), None, &id, 0, 0).unwrap(),
+            expected
+        );
+    }
+}
+
 fn prefer_rollout(home: &Path, id: &str, path: &Path) {
     let db = rusqlite::Connection::open(home.join("state_5.sqlite")).unwrap();
     db.execute_batch("CREATE TABLE IF NOT EXISTS threads(id TEXT PRIMARY KEY,rollout_path TEXT,title TEXT,updated_at INTEGER);").unwrap();
