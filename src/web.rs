@@ -102,7 +102,11 @@ fn api(request: &mut Request, token: &str, origin: &str) -> Result<Value> {
         }
         "/api/export" => {
             let ids: Vec<String> = serde_json::from_value(body["threads"].clone())?;
-
+            if body["outputDirectory"].is_string() {
+                let (output, manifest) =
+                    bundle::export_directory(&path("home")?, &ids, &path("outputDirectory")?)?;
+                return Ok(json!({"output":output,"manifest":manifest}));
+            }
             let output = path("output")?;
             let manifest = bundle::export(&path("home")?, &ids, &output)?;
             Ok(json!({"output":output,"manifest":manifest}))

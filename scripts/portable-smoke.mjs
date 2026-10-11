@@ -6,7 +6,8 @@ import { chromium } from '@playwright/test';
 const root = process.cwd();
 const home = path.join(root, '.runtime', 'portable-smoke-home');
 const destination = path.join(root, '.runtime', 'portable-smoke-project');
-const output = path.join(root, '.runtime', `portable-smoke-${Date.now()}.cct.zip`);
+const outputDirectory = path.join(root, '.runtime', `portable-smoke-${Date.now()}`);
+const output = path.join(outputDirectory, 'codex-chats.cct.zip');
 
 if (process.argv.includes('--prepare')) {
   fs.mkdirSync(path.join(home, 'sessions', '2026', '10', '02'), { recursive: true });
@@ -46,7 +47,7 @@ for (let attempt = 0; attempt < 30; attempt++) {
 if (!page) throw new Error('The native application did not load its embedded UI');
 await page.getByText('便携窗口导出测试', { exact: true }).waitFor();
 await page.getByRole('checkbox', { name: '选择当前列表全部聊天' }).check();
-await page.getByRole('textbox', { name: '导出文件路径' }).fill(output);
+await page.getByRole('textbox', { name: '导出文件夹' }).fill(outputDirectory);
 await page.getByRole('button', { name: '导出 1', exact: true }).click();
 await page.getByText('已导出 1 条聊天', { exact: true }).waitFor();
 if (!fs.existsSync(output)) throw new Error('The native export did not create its package');

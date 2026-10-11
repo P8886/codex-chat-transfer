@@ -277,6 +277,51 @@ fn collect_image_paths(value: &Value, paths: &mut BTreeSet<String>) {
     }
 }
 
+pub fn export_directory(
+    home: &Path,
+    ids: &[String],
+    directory: &Path,
+) -> Result<(PathBuf, Manifest)> {
+    ensure!(directory.is_absolute(), "请选择导出文件夹的绝对路径");
+    fs::create_dir_all(directory)?;
+    let temporary = directory.join(format!(".chat-transfer-{}.cct.zip", Uuid::new_v4()));
+    let result = (|| -> Result<(PathBuf, Manifest)> {
+        let manifest = export(home, ids, &temporary)?;
+        for number in 0..u32::MAX {
+            let name = if number == 0 {
+                "codex-chats.cct.zip".to_owned()
+            } else {
+                format!("codex-chats-{number}.cct.zip")
+            };
+            let output = directory.join(name);
+            // Exclusive creation protects existing files even if another export uses the same folder.
+            let mut file = match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&output)
+            {
+                Ok(file) => file,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            };
+            let copy = (|| -> Result<()> {
+                std::io::copy(&mut fs::File::open(&temporary)?, &mut file)?;
+                file.sync_all()?;
+                Ok(())
+            })();
+            drop(file);
+            if let Err(error) = copy {
+                let _ = fs::remove_file(&output);
+                return Err(error);
+            }
+            return Ok((output, manifest));
+        }
+        anyhow::bail!("导出文件编号已用尽，请选择其他文件夹")
+    })();
+    let _ = fs::remove_file(&temporary);
+    result
+}
+
 pub fn export(home: &Path, ids: &[String], output: &Path) -> Result<Manifest> {
     ensure!(!ids.is_empty(), "请选择要导出的聊天");
     ensure!(

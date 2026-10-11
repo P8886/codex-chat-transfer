@@ -9,7 +9,7 @@ test('single and bulk deletion require confirmation and export controls stay abo
     await route.fulfill({json:{deleted:2,backup:'C:\\test\\chat-transfer-backups\\delete'}});
   });
   await page.goto('/');
-  const output=await page.getByRole('textbox',{name:'导出文件路径'}).boundingBox();
+  const output=await page.getByRole('textbox',{name:'导出文件夹'}).boundingBox();
   const list=await page.getByRole('checkbox',{name:'选择当前列表全部聊天'}).boundingBox();
   expect(output!.y).toBeLessThan(list!.y);
   await page.getByRole('button',{name:'删除 子任务勾选状态更新',exact:true}).click();
@@ -115,11 +115,13 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('selection, export and target project import', async ({ page }) => {
+  const exportRequest = page.waitForRequest(request => request.url().endsWith('/api/export') && request.method() === 'POST');
   await page.goto('/');
   await expect(page.getByText('子任务勾选状态更新', { exact: true })).toBeVisible();
   await page.getByRole('checkbox', { name: '选择当前列表全部聊天' }).check();
-  await page.getByRole('textbox', { name: '导出文件路径' }).fill('D:\\transfer\\chats.cct.zip');
+  await page.getByRole('textbox', { name: '导出文件夹' }).fill('D:\\transfer');
   await page.getByRole('button', { name: '导出 2', exact: true }).click();
+  expect((await exportRequest).postDataJSON()).toEqual({home:'C:\\Users\\test\\.codex',threads:threads.map(t=>t.id),outputDirectory:'D:\\transfer'});
   await expect(page.getByText('已导出 2 条聊天')).toBeVisible();
   await page.getByRole('button', { name: '导入到本机', exact: true }).click();
   await page.getByRole('textbox', { name: '导出包路径' }).fill('D:\\transfer\\chats.cct.zip');

@@ -54,6 +54,55 @@ fn bare_home() -> TempDir {
 }
 
 #[test]
+fn directory_exports_are_numbered_without_overwriting_existing_files() {
+    let home = bare_home();
+    let out = TempDir::new().unwrap();
+    let id = Uuid::new_v4().to_string();
+    fixture(home.path(), &id, None, "Export");
+    let first = out.path().join("codex-chats.cct.zip");
+    fs::write(&first, "Existing export").unwrap();
+    fs::write(
+        out.path().join("codex-chats-1.cct.zip"),
+        "Another existing export",
+    )
+    .unwrap();
+    let (second, _) =
+        bundle::export_directory(home.path(), std::slice::from_ref(&id), out.path()).unwrap();
+    assert_eq!(second.file_name().unwrap(), "codex-chats-2.cct.zip");
+    assert_eq!(fs::read_to_string(&first).unwrap(), "Existing export");
+    assert_eq!(bundle::load(&second).unwrap().manifest.threads.len(), 1);
+    let (third, _) = bundle::export_directory(home.path(), &[id], out.path()).unwrap();
+    assert_eq!(third.file_name().unwrap(), "codex-chats-3.cct.zip");
+    assert_eq!(fs::read_dir(out.path()).unwrap().count(), 4);
+}
+
+#[test]
+fn simultaneous_exports_use_different_numbered_names() {
+    let home = bare_home();
+    let out = TempDir::new().unwrap();
+    let id = Uuid::new_v4().to_string();
+    fixture(home.path(), &id, None, "Concurrent export");
+    let results = std::thread::scope(|scope| {
+        let first = scope.spawn(|| {
+            bundle::export_directory(home.path(), std::slice::from_ref(&id), out.path())
+                .unwrap()
+                .0
+        });
+        let second = scope.spawn(|| {
+            bundle::export_directory(home.path(), std::slice::from_ref(&id), out.path())
+                .unwrap()
+                .0
+        });
+        [first.join().unwrap(), second.join().unwrap()]
+    });
+    assert_ne!(results[0], results[1]);
+    for path in results {
+        assert_eq!(bundle::load(&path).unwrap().manifest.threads.len(), 1);
+    }
+    assert_eq!(fs::read_dir(out.path()).unwrap().count(), 2);
+}
+
+#[test]
 fn incomplete_local_history_is_previewed_but_export_stays_strict() {
     let home = bare_home();
     let id = Uuid::new_v4().to_string();

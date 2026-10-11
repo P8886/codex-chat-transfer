@@ -1,6 +1,6 @@
 [package]
 name = "codex-chat-transfer"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 license = "MIT"
 default-run = "codex-chat-transfer"
