@@ -4,7 +4,9 @@
 
 ## 使用
 
-单文件版只需复制 `codex-chat-transfer-single-v0.3.1.exe`，双击即打开独立窗口。EXE 内置应用与加载器，首次运行自动释放到当前用户的 `%LOCALAPPDATA%\CodexChatTransfer\single-file` 缓存，不需要手动携带 DLL、解压 ZIP 或安装应用。仍使用系统 WebView2 Runtime。关闭窗口后，启动器和内部服务一并退出。单文件版是图形入口，命令行功能使用下面的普通便携包。
+单文件版只需复制 `codex-chat-transfer-single-v0.4.0.exe`，双击即打开独立窗口。EXE 内置应用与加载器，首次运行自动释放到当前用户的 `%LOCALAPPDATA%\CodexChatTransfer\single-file` 缓存，不需要手动携带 DLL、解压 ZIP 或安装应用。仍使用系统 WebView2 Runtime。关闭窗口后，启动器和内部服务一并退出。单文件版是图形入口，命令行功能使用下面的普通便携包。
+
+聊天列表中的眼睛按钮可只读预览用户与助手正文；导出包校验后也可在导入前逐条预览，不需要关闭 Codex，不会导入或修改聊天。每页 50 条消息，支持前后翻页。正文按纯文本显示，图片附件显示引用名称，工具执行记录不在正文预览中显示。单条超长消息显示前 131072 个字符并明确提示；导出数据不因此截断。
 
 解压便携包后，双击 `codex-chat-transfer.exe`，直接打开独立 Windows 窗口，不打开外部浏览器或命令行窗口。A 电脑选择项目和聊天，导出 `.cct.zip`；B 电脑选择导出包和本机目标项目，校验后导入。A/B 项目路径可以不同。
 

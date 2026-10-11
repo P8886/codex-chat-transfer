@@ -52,6 +52,56 @@ fn bare_home() -> TempDir {
     fs::write(temp.path().join(".codex-global-state.json"), "{}").unwrap();
     temp
 }
+
+#[test]
+fn local_and_package_previews_are_read_only_and_include_history() {
+    let home = bare_home();
+    let out = TempDir::new().unwrap();
+    let parent_id = Uuid::new_v4().to_string();
+    let id = Uuid::new_v4().to_string();
+    let parent = fixture(home.path(), &parent_id, None, "前段正文");
+    let path = fixture(
+        home.path(),
+        &id,
+        Some(
+            json!({"thread_id":parent_id,"end_ordinal_exclusive":5,"end_byte_offset":fs::metadata(&parent).unwrap().len()}),
+        ),
+        "本段正文",
+    );
+    let before = bundle::digest_file(&path).unwrap();
+    let local = crate::conversation::preview(Some(home.path()), None, &id, 0).unwrap();
+    assert_eq!(local.total, 4);
+    assert_eq!(local.messages[0].text, "前段正文");
+    assert_eq!(local.messages[2].text, "本段正文");
+    let package = out.path().join("preview.cct.zip");
+    bundle::export(home.path(), std::slice::from_ref(&id), &package).unwrap();
+    let hash = bundle::digest_file(&package).unwrap();
+    let packed = crate::conversation::preview(None, Some(&package), &id, 0).unwrap();
+    assert_eq!(packed.total, local.total);
+    assert_eq!(packed.messages[2].text, "本段正文");
+    assert_eq!(bundle::digest_file(&path).unwrap(), before);
+    assert_eq!(bundle::digest_file(&package).unwrap(), hash);
+    assert!(!home.path().join("chat-transfer-backups").exists());
+    assert!(crate::conversation::preview(None, Some(&package), "unknown", 0).is_err());
+    assert!(crate::conversation::preview(Some(home.path()), Some(&package), &id, 0).is_err());
+    assert!(crate::conversation::preview(None, Some(&package), &id, 5).is_err());
+}
+
+#[test]
+fn conversation_preview_paginates_without_losing_messages() {
+    let home = bare_home();
+    let id = Uuid::new_v4().to_string();
+    let path = fixture(home.path(), &id, None, "First");
+    let mut rows = bundle::decode_records(&fs::read(&path).unwrap()).unwrap();
+    rows.extend((0..60).map(|index| json!({"type":"event_msg","payload":{"type":"user_message","message":format!("Message {index}")}})));
+    fs::write(path, bundle::encode_records(&rows).unwrap()).unwrap();
+    let first = crate::conversation::preview(Some(home.path()), None, &id, 0).unwrap();
+    let second = crate::conversation::preview(Some(home.path()), None, &id, 50).unwrap();
+    assert_eq!(first.total, 62);
+    assert_eq!(first.messages.len(), 50);
+    assert_eq!(second.messages.len(), 12);
+    assert_eq!(second.messages[0].text, "Message 48");
+}
 fn allow_isolated_fixture() -> Result<()> {
     Ok(())
 }

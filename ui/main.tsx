@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowRight, Check, CheckCircle2, ChevronDown, Download, FileArchive, Folder, FolderOpen, Layers, LoaderCircle, LockKeyhole, MessageSquare, RefreshCw, Search, Settings2, ShieldCheck, Upload, X } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle2, ChevronDown, Download, Eye, FileArchive, Folder, FolderOpen, Layers, LoaderCircle, LockKeyhole, MessageSquare, RefreshCw, Search, Settings2, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
+import { ConversationPreview, type ConversationTarget } from './conversation-preview';
 import { ProjectMappings, type MappingDraft, type SourceProject } from './project-mappings';
 import { RuntimeDiagnostics, type RuntimeProcess } from './runtime-diagnostics';
 import './style.css';
@@ -42,6 +43,14 @@ function App() {
   const [error, setError] = useState('');
   const [exported, setExported] = useState<{ output: string; manifest: Manifest } | null>(null);
   const [report, setReport] = useState<Report | null>(null);
+  const [conversation, setConversation] = useState<ConversationTarget | null>(null);
+  
+  
+  
+  
+  
+  
+  
 
   async function api<T>(endpoint: string, body: unknown, token = bootstrap?.token): Promise<T> {
     const response = await fetch(`/api/${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Transfer-Token': token || '' }, body: JSON.stringify(body) });
@@ -98,9 +107,19 @@ function App() {
   function changeMapping(id: string, patch: Partial<MappingDraft>) { setMappings(old => ({ ...old, [id]: { ...old[id], ...patch } })); setReport(null); }
   const count = (id: string) => catalog.threads.filter(t => (archived || !t.archived) && (id === '*' || (id === '-' ? !t.projectId : t.projectId === id))).length;
   const selectable = filtered.filter(t => !t.exportError);
+  
+  
+  
+  
+  
   const allSelected = selectable.length > 0 && selectable.every(t => selected.has(t.id));
   function toggle(id: string) { setSelected(old => { const next = new Set(old); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
   function selectVisible() { setSelected(old => { const next = new Set(old); selectable.forEach(t => allSelected ? next.delete(t.id) : next.add(t.id)); return next; }); }
+
+  
+  
+
+  
 
   async function choose(kind: string, setter: (path: string) => void) {
     await perform('选择文件', async () => {
@@ -143,13 +162,17 @@ function App() {
   }
 
   return <div className="app">
+    
+    
+    {conversation && <ConversationPreview key={`${conversation.package || conversation.home}:${conversation.threadId}`} target={conversation} token={bootstrap?.token || ''} onClose={() => setConversation(null)} />}
     <header className="header">
-      <div className="brand"><MessageSquare size={22} /><h1>Codex Chat Transfer</h1><span className="version">v{bootstrap?.version || '0.3.1'}</span></div>
+      <div className="brand"><MessageSquare size={22} /><h1>Codex Chat Transfer</h1><span className="version">v{bootstrap?.version || '0.4.0'}</span></div>
       <div className="header-actions">
         <span className={`runtime ${bootstrap?.runtimeClosed ? 'ready' : 'blocked'}`}><span className="status-dot" />{bootstrap ? bootstrap.runtimeClosed ? '导入可用' : '数据写入进程未退出' : '正在检测进程'}</span>
         <button className="icon-button" title="设置" aria-label="设置" onClick={() => setSettings(!settings)}><Settings2 size={18} /></button>
       </div>
     </header>
+    
 
     {settings && <section className="settings">
       <label>Codex 数据目录<div className="path-input"><input value={home} onChange={e => setHome(e.target.value)} /><button className="icon-button" title="选择数据目录" aria-label="选择数据目录" disabled={!!busy} onClick={() => choose('folder', setHome)}><FolderOpen size={18} /></button></div></label>
@@ -173,13 +196,15 @@ function App() {
         {busy && <div className="activity" role="status"><LoaderCircle className="spin" size={16} />{busy}</div>}
 
         {tab === 'export' ? <>
+          
+          
           <div className="section-heading"><div><h2>{projectFilter === '*' ? '全部聊天' : projectFilter === '-' ? '无项目' : catalog.projects.find(p => p.id === projectFilter)?.name}</h2><span>{filtered.length} 条聊天</span></div><label className="check-label"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} />包含归档</label></div>
           <div className="search"><Search size={17} /><input aria-label="搜索聊天" placeholder="搜索标题、目录或会话 ID" value={query} onChange={e => setQuery(e.target.value)} />{query && <button className="icon-button" title="清除搜索" aria-label="清除搜索" onClick={() => setQuery('')}><X size={15} /></button>}</div>
           <div className="table-wrap"><table><thead><tr><th className="checkbox-column"><input type="checkbox" aria-label="选择当前列表全部聊天" checked={allSelected} onChange={selectVisible} /></th><th>聊天</th><th className="directory-column">源目录</th><th className="date-column">更新日期</th></tr></thead><tbody>
-            {filtered.map(t => <tr key={t.id} className={selected.has(t.id) ? 'selected' : ''} onClick={() => !t.exportError && toggle(t.id)}><td><input aria-label={`选择 ${t.title}`} type="checkbox" disabled={!!t.exportError} checked={selected.has(t.id)} onChange={() => toggle(t.id)} onClick={e => e.stopPropagation()} /></td><td><div className="thread-title">{t.title}{t.archived && <span className="tag">归档</span>}{t.exportError && <span className="tag conflict" title={t.exportError}>文件冲突</span>}</div><div className="thread-id mono">{t.id}</div></td><td className="directory-column"><span className="path-cell" title={t.cwd}>{t.cwd}</span></td><td className="date-column">{date(t.updatedAt)}</td></tr>)}
+            {filtered.map(t => <tr key={t.id} className={selected.has(t.id) ? 'selected' : ''} onClick={() => toggle(t.id)}><td><input aria-label={`选择 ${t.title}`} type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} onClick={e => e.stopPropagation()} /></td><td><div className="thread-preview-heading"><div className="thread-title">{t.title}{t.archived && <span className="tag">归档</span>}{t.exportError && <span className="tag conflict" title={t.exportError}>文件冲突</span>}</div><button className="icon-button" title="预览会话" aria-label={`预览 ${t.title}`} disabled={!!busy} onClick={e => { e.stopPropagation(); setConversation({ threadId: t.id, title: t.title, home }); }}><Eye size={17} /></button></div><div className="thread-id mono">{t.id}</div></td><td className="directory-column"><span className="path-cell" title={t.cwd}>{t.cwd}</span></td><td className="date-column">{date(t.updatedAt)}</td></tr>)}
             {!filtered.length && <tr><td colSpan={4} className="empty">{busy ? '正在读取聊天' : '没有匹配的聊天'}</td></tr>}
           </tbody></table></div>
-          <div className="export-bar"><span><strong>{selected.size}</strong> 条已选</span><div className="path-input"><input aria-label="导出文件路径" placeholder="导出文件路径" value={output} onChange={e => setOutput(e.target.value)} /><button className="icon-button" title="选择导出位置" aria-label="选择导出位置" disabled={!!busy} onClick={() => choose('save', setOutput)}><FolderOpen size={18} /></button></div><button className="button primary" disabled={!!busy || !selected.size || !output} onClick={() => perform('打包聊天与历史依赖', async () => { setExported(null); const result = await api<{ output: string; manifest: Manifest }>('export', { home, threads: [...selected], output }); setExported(result); })}><Download size={17} />导出 {selected.size || ''}</button></div>
+<div className="export-bar"><span><strong>{selected.size}</strong> 条已选</span><div className="path-input"><input aria-label="导出文件路径" placeholder="导出文件路径" value={output} onChange={e => setOutput(e.target.value)} /><button className="icon-button" title="选择导出位置" aria-label="选择导出位置" disabled={!!busy} onClick={() => choose('save', setOutput)}><FolderOpen size={18} /></button></div><button className="button primary" disabled={!!busy || !selected.size || !output} onClick={() => perform('打包聊天与历史依赖', async () => { setExported(null); const result = await api<{ output: string; manifest: Manifest }>('export', { home, threads: [...selected], output }); setExported(result); })}><Download size={17} />导出 {selected.size || ''}</button></div>
           {exported && <div className="result" role="status"><CheckCircle2 size={22} /><div><strong>已导出 {exported.manifest.threads.length} 条聊天</strong><p className="mono">{exported.output}</p><span>{exported.manifest.sourceProjects?.length || 0} 个项目分组 · {exported.manifest.assets.length} 个图片引用 · 历史依赖已合并 · 文件校验已完成</span>{exported.manifest.warnings.length > 0 && <details><summary>{exported.manifest.warnings.length} 条附件警告</summary>{exported.manifest.warnings.map((w, i) => <p key={i}>{w}</p>)}</details>}</div></div>}
         </> : <>
           <div className="section-heading"><div><h2>导入到本机项目</h2><span>{preview ? `${preview.manifest.threads.length} 条聊天待导入` : '尚未选择导出包'}</span></div><ShieldCheck size={23} className="muted" /></div>
@@ -195,7 +220,7 @@ function App() {
           {!bootstrap?.runtimeClosed && <RuntimeDiagnostics processes={bootstrap?.blockingProcesses || []} message={bootstrap?.runtimeError || '正在检查进程；退出对应程序后状态会自动更新。'} onRefresh={() => perform('检测进程', async () => setBootstrap(await fetch('/api/bootstrap').then(r => r.json())))} />}
           {preview && <>
             <div className="package-meta"><span><CheckCircle2 size={16} />{preview.manifest.threads.length} 条会话校验通过</span><span>{size(preview.manifest.threads.reduce((n, t) => n + t.bytes, 0))}</span><span>{new Date(preview.manifest.exportedAt).toLocaleString('zh-CN')}</span></div>
-            <div className="table-wrap preview-table"><table><thead><tr><th>聊天</th><th>源项目 / 目录</th><th className="target-column">导入目标</th></tr></thead><tbody>{preview.manifest.threads.map(t => <tr key={t.id}><td><div className="thread-title">{t.title}{preview.conflicts.includes(t.id) && <span className="tag conflict">同 ID</span>}</div><div className="thread-id mono">{t.id}</div></td><td><strong className="source-group-name">{groupName(t.sourceProjectId)}</strong><span className="path-cell" title={t.sourceCwd}>{t.sourceCwd}</span></td><td><span className="destination"><ArrowRight size={15} /><Folder size={16} />{preserveGroups ? mappingLabel(t.sourceProjectId) : targetLabel}</span></td></tr>)}</tbody></table></div>
+            <div className="table-wrap preview-table"><table><thead><tr><th>聊天</th><th>源项目 / 目录</th><th className="target-column">导入目标</th></tr></thead><tbody>{preview.manifest.threads.map(t => <tr key={t.id}><td><div className="thread-preview-heading"><div className="thread-title">{t.title}{preview.conflicts.includes(t.id) && <span className="tag conflict">同 ID</span>}</div><button className="icon-button" title="预览会话" aria-label={`预览 ${t.title}`} disabled={!!busy} onClick={() => setConversation({ threadId: t.id, title: t.title, package: packagePath })}><Eye size={17} /></button></div><div className="thread-id mono">{t.id}</div></td><td><strong className="source-group-name">{groupName(t.sourceProjectId)}</strong><span className="path-cell" title={t.sourceCwd}>{t.sourceCwd}</span></td><td><span className="destination"><ArrowRight size={15} /><Folder size={16} />{preserveGroups ? mappingLabel(t.sourceProjectId) : targetLabel}</span></td></tr>)}</tbody></table></div>
             {preview.conflicts.length > 0 && <label className="replace-option"><input type="checkbox" checked={replace} onChange={e => setReplace(e.target.checked)} /><span>替换 {preview.conflicts.length} 条同 ID 会话，原记录自动备份</span></label>}
             {preview.manifest.warnings.length > 0 && <details className="warnings"><summary>{preview.manifest.warnings.length} 条原始附件警告</summary>{preview.manifest.warnings.map((w, i) => <p key={i}>{w}</p>)}</details>}
             <div className="import-bar"><span><ShieldCheck size={16} />{preserveGroups ? `${groups.length} 个项目分组 · 整包备份与校验` : '完整校验后保存项目归属'}</span><button className="button primary" disabled={!!busy || !bootstrap?.runtimeClosed || (preview.conflicts.length > 0 && !replace) || (preserveGroups ? !mappingsComplete : target === '__new' ? !targetDir : !targetProject) || !binary} onClick={importPackage}><Upload size={17} />导入 {preview.manifest.threads.length} 条</button></div>

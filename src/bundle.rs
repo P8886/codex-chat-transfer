@@ -188,6 +188,24 @@ fn flatten(
     Ok(result)
 }
 
+pub fn local_preview_records(home: &Path, id: &str) -> Result<(String, Vec<Value>)> {
+    let catalog: BTreeMap<_, _> = scan(home)?
+        .threads
+        .into_iter()
+        .map(|t| (t.id.clone(), t))
+        .collect();
+    let thread = catalog.get(id).context("本机未找到该会话")?;
+    let mut snapshots = BTreeMap::new();
+    let records = flatten(thread, &catalog, None, &mut BTreeSet::new(), &mut snapshots)?;
+    for (path, expected) in snapshots {
+        ensure!(
+            digest_file(&path)? == expected,
+            "会话读取期间发生变化，请重试"
+        );
+    }
+    Ok((thread.title.clone(), records))
+}
+
 pub fn expected_message_ids(records: &[Value]) -> BTreeSet<String> {
     records
         .iter()

@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use codex_chat_transfer::{
-    bundle,
+    bundle, conversation,
     importer::{self, ImportOptions},
     model, rpc, runtime,
 };
@@ -67,6 +67,19 @@ fn api(request: &mut Request, token: &str, origin: &str) -> Result<Value> {
         ))
     };
     match request.url() {
+        "/api/conversation" => {
+            let id = body["threadId"].as_str().context("缺少会话 ID")?;
+            let offset = body["offset"].as_u64().unwrap_or(0);
+            let offset = usize::try_from(offset).context("无效的分页位置")?;
+            let home = body["home"].as_str().map(PathBuf::from);
+            let package = body["package"].as_str().map(PathBuf::from);
+            Ok(serde_json::to_value(conversation::preview(
+                home.as_deref(),
+                package.as_deref(),
+                id,
+                offset,
+            )?)?)
+        }
         "/api/catalog" => Ok(serde_json::to_value(model::scan(&path("home")?)?)?),
         "/api/dialog" => {
             let dialog = rfd::FileDialog::new().set_title("Codex Chat Transfer");
@@ -86,6 +99,7 @@ fn api(request: &mut Request, token: &str, origin: &str) -> Result<Value> {
         }
         "/api/export" => {
             let ids: Vec<String> = serde_json::from_value(body["threads"].clone())?;
+
             let output = path("output")?;
             let manifest = bundle::export(&path("home")?, &ids, &output)?;
             Ok(json!({"output":output,"manifest":manifest}))

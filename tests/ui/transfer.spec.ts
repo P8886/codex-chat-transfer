@@ -1,5 +1,50 @@
 import { test, expect } from '@playwright/test';
 
+test('previews local and packaged conversations without importing', async ({ page }) => {
+  const requests: Record<string, unknown>[] = [];
+  let imports = 0;
+  await page.route('**/api/conversation', async route => {
+    const body = route.request().postDataJSON();
+    requests.push(body);
+    await route.fulfill({ json: { title: '正文预览', offset: body.offset, total: 51, messages: body.offset === 0 ? Array.from({length:50}, (_, i) => ({role: i % 2 ? 'assistant' : 'user', text: i === 0 ? '<script>正文不是 HTML</script>' : `正文 ${i}`, timestamp:null, truncated:false})) : [{role:'assistant',text:'最后一条消息',timestamp:null,truncated:false}] } });
+  });
+  await page.route('**/api/import', async route => { imports++; await route.fulfill({json:{}}); });
+  await page.goto('/');
+  await page.getByRole('button', {name:'预览 子任务勾选状态更新',exact:true}).click();
+  const dialog = page.getByRole('dialog', {name:'会话预览'});
+  await expect(dialog.getByText('<script>正文不是 HTML</script>', {exact:true})).toBeVisible();
+  await expect(page.getByRole('checkbox', {name:'选择 子任务勾选状态更新',exact:true})).not.toBeChecked();
+  await dialog.getByRole('button', {name:'下一页消息'}).click();
+  await expect(dialog.getByText('最后一条消息')).toBeVisible();
+  await dialog.getByRole('button', {name:'关闭预览'}).click();
+  await page.getByRole('button', {name:'导入到本机',exact:true}).click();
+  await page.getByRole('textbox', {name:'导出包路径'}).fill('D:\\preview.cct.zip');
+  await page.getByRole('button', {name:'校验包',exact:true}).click();
+  await page.getByRole('button', {name:'预览 子任务勾选状态更新',exact:true}).click();
+  await expect(dialog.getByText('<script>正文不是 HTML</script>', {exact:true})).toBeVisible();
+  expect(requests[0].home).toBe('C:\\Users\\test\\.codex');
+  expect(requests.at(-1)?.package).toBe('D:\\preview.cct.zip');
+  expect(imports).toBe(0);
+  await page.screenshot({path:'test-results/conversation-desktop.png'});
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:'test-results/conversation-mobile.png'});
+  expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+});
+
+test('preview errors can be closed without changing selection', async ({page}) => {
+  await page.route('**/api/conversation', route => route.fulfill({status:400,json:{error:'会话前段历史缺失'}}));
+  await page.goto('/');
+  await page.getByRole('button',{name:'预览 子任务勾选状态更新',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'会话预览'});
+  await expect(dialog.getByRole('alert')).toHaveText('会话前段历史缺失');
+  await dialog.getByRole('button',{name:'关闭预览'}).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('checkbox',{name:'选择 子任务勾选状态更新',exact:true})).not.toBeChecked();
+});
+
 const threads = [
   { id: '01a0f156-3371-77d2-a57b-758094b1c140', title: '子任务勾选状态更新', cwd: 'D:\\Company\\renewlet', projectId: 'source-project', archived: false, updatedAt: 1790816400 },
   { id: '01a0ddad-da32-70c2-bf9e-147d1193aef7', title: '样式更改与日历统计', cwd: 'D:\\Company\\renewlet', projectId: 'source-project', archived: false, updatedAt: 1790816300 },
