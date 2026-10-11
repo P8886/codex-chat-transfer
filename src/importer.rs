@@ -293,7 +293,7 @@ fn select_project(options: &ImportOptions) -> Result<Project> {
     let root = options
         .target_dir
         .as_ref()
-        .context("请选择 B 电脑上的目标项目或项目文件夹")?;
+        .context("请选择本机目标项目或项目文件夹")?;
     ensure!(
         root.is_absolute() && root.is_dir(),
         "目标文件夹必须是已存在的绝对路径"
@@ -597,7 +597,7 @@ pub(crate) fn import_checked(
     );
     ensure!(
         collisions.is_empty() || options.replace,
-        "B 电脑已存在 {} 条同 ID 会话；请显式选择替换，原记录会先备份",
+        "本机已存在 {} 条同 ID 会话；请显式选择替换，原记录会先备份",
         collisions.len()
     );
     if !collisions.is_empty() {

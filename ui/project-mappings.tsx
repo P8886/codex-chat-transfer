@@ -9,7 +9,7 @@ export function ProjectMappings({ groups, projects, drafts, disabled, onChange, 
   onChange: (id: string, patch: Partial<MappingDraft>) => void; onFolder: (id: string) => void;
 }) {
   return <section className="group-mappings" aria-label="项目分组映射">
-    <div className="mapping-heading"><span>源项目</span><span>B 电脑的目标项目 / 文件夹</span></div>
+    <div className="mapping-heading"><span>源项目</span><span>本机目标项目 / 文件夹</span></div>
     {groups.map(group => {
       const draft = drafts[group.id] || { target: '__new', directory: '', name: group.name };
       const current = projects.find(p => p.id === draft.target);
@@ -21,7 +21,7 @@ export function ProjectMappings({ groups, projects, drafts, disabled, onChange, 
             {projects.map(project => <option key={project.id} value={project.id}>{project.name} · {project.roots[0]}</option>)}
           </select><ChevronDown size={15} /></div>
           {draft.target === '__new' ? <div className="new-group-fields">
-            <label className="field-label">B 电脑项目文件夹<div className="path-input"><input aria-label={`项目文件夹：${group.name}`} disabled={disabled} value={draft.directory} placeholder="选择 B 电脑上的项目文件夹" onChange={e => onChange(group.id, { directory: e.target.value })} /><button className="icon-button" title={`选择 ${group.name} 的文件夹`} aria-label={`选择 ${group.name} 的文件夹`} disabled={disabled} onClick={() => onFolder(group.id)}><FolderOpen size={17} /></button></div></label>
+            <label className="field-label">本机项目文件夹<div className="path-input"><input aria-label={`项目文件夹：${group.name}`} disabled={disabled} value={draft.directory} placeholder="选择本机项目文件夹" onChange={e => onChange(group.id, { directory: e.target.value })} /><button className="icon-button" title={`选择 ${group.name} 的文件夹`} aria-label={`选择 ${group.name} 的文件夹`} disabled={disabled} onClick={() => onFolder(group.id)}><FolderOpen size={17} /></button></div></label>
             <label className="field-label">项目名称<input className="plain-input" aria-label={`项目名称：${group.name}`} disabled={disabled} value={draft.name} onChange={e => onChange(group.id, { name: e.target.value })} /></label>
           </div> : <span className="target-path mono">{current?.roots.join(' · ')}</span>}
         </div>
