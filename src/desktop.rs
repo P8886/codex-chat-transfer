@@ -1,11 +1,12 @@
 use crate::web::LocalServer;
 use anyhow::{Context, Result};
+use tao::platform::windows::{IconExtWindows, WindowBuilderExtWindows};
 use tao::{
-    dpi::LogicalSize,
+    dpi::{LogicalSize, PhysicalSize},
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     platform::run_return::EventLoopExtRunReturn,
-    window::WindowBuilder,
+    window::{Icon, WindowBuilder},
 };
 use wry::{WebContext, WebViewBuilder};
 
@@ -19,9 +20,18 @@ pub fn run() -> Result<()> {
     let mut event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("Codex Chat Transfer")
+        .with_window_icon(Some(Icon::from_resource(
+            1,
+            Some(PhysicalSize::new(32, 32)),
+        )?))
+        .with_taskbar_icon(Some(Icon::from_resource(
+            1,
+            Some(PhysicalSize::new(256, 256)),
+        )?))
         .with_inner_size(LogicalSize::new(1180.0, 800.0))
         .with_min_inner_size(LogicalSize::new(800.0, 600.0))
         .build(&event_loop)?;
+
     let mut context = WebContext::new(Some(directory));
     let origin = server.origin.clone();
     let allowed_origin = origin.clone();
@@ -34,6 +44,7 @@ pub fn run() -> Result<()> {
         .context("无法创建独立窗口，请确认系统已安装 Microsoft Edge WebView2 Runtime")?;
     event_loop.run_return(|event, _, flow| {
         *flow = ControlFlow::Wait;
+
         if let Event::WindowEvent {
             event: WindowEvent::CloseRequested,
             ..
@@ -55,4 +66,16 @@ pub fn run() -> Result<()> {
     drop(window);
     drop(server);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn approved_icon_resources_load_at_window_and_taskbar_sizes() {
+        for size in [32, 256] {
+            assert!(Icon::from_resource(1, Some(PhysicalSize::new(size, size))).is_ok());
+        }
+    }
 }

@@ -1,10 +1,11 @@
 {
   "name": "codex-chat-transfer-ui",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "icon": "node scripts/generate-icon.mjs",
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "test:ui": "playwright test"

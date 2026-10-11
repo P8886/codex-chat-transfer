@@ -1,5 +1,14 @@
 import { test, expect } from '@playwright/test';
 
+test('approved application icon renders in the header and favicon',async({page})=>{
+  await page.goto('/');
+  const icon=page.locator('.brand > img');
+  await expect(icon).toBeVisible();
+  expect(await icon.evaluate(el=>(el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  expect(await page.locator('link[rel="icon"]').getAttribute('href')).toContain('app-icon');
+  await page.screenshot({path:'test-results/branded-header.png'});
+});
+
 test('user messages align right and assistant messages align left without overflow',async({page})=>{
   await page.route('**/api/conversation',route=>route.fulfill({json:{title:'Aligned conversation',total:3,offset:0,messages:[{role:'user',text:'收到，谢谢',timestamp:'2026-10-11T08:00:00Z',truncated:false},{role:'assistant',text:'已处理完成。\n这是助手的回复，保留左侧阅读布局。',timestamp:'2026-10-11T08:00:05Z',truncated:false},{role:'user',text:'https://example.test/'+ 'long-content-'.repeat(50),timestamp:null,truncated:false}]}}));
   await page.goto('/');await page.getByRole('button',{name:'预览 子任务勾选状态更新',exact:true}).click();

@@ -4,7 +4,7 @@
 
 ## 使用
 
-单文件版只需复制 `codex-chat-transfer-single-v0.5.1.exe`，双击即打开独立窗口。EXE 内置应用与加载器，首次运行自动释放到当前用户的 `%LOCALAPPDATA%\CodexChatTransfer\single-file` 缓存，不需要手动携带 DLL、解压 ZIP 或安装应用。仍使用系统 WebView2 Runtime。关闭窗口后，启动器和内部服务一并退出。单文件版是图形入口，命令行功能使用下面的普通便携包。
+单文件版只需复制 `codex-chat-transfer-single-v0.5.2.exe`，双击即打开独立窗口。EXE 内置应用与加载器，首次运行自动释放到当前用户的 `%LOCALAPPDATA%\CodexChatTransfer\single-file` 缓存，不需要手动携带 DLL、解压 ZIP 或安装应用。仍使用系统 WebView2 Runtime。关闭窗口后，启动器和内部服务一并退出。单文件版是图形入口，命令行功能使用下面的普通便携包。
 
 预览采用左右消息布局：用户消息在右侧浅色气泡内，助手消息在左侧；时间和附件随消息对齐，长文本自动换行。
 
@@ -86,6 +86,8 @@ codex-chat-transfer-cli.exe restore C:\Users\you\.codex\chat-transfer-backups\<�
 ```
 
 ## 构建与验证
+
+应用图标源文件为 `assets/app-icon.svg`，图标已内置在两种 EXE、窗口/任务栏和界面标题栏中。修改 SVG 后运行 `npm run icon`（需要本机 Chrome）重新生成多尺寸 ICO 与 PNG，再正常打包。Windows 构建使用资源编译器：GNU 工具链需 MinGW 的 `windres` 在 PATH，MSVC 需 Windows SDK。
 
 Windows 打包需要 Node.js/npm 和 Rust Cargo（Windows x64 工具链；MSVC 需安装 Visual Studio C++ Build Tools）。双击根目录 `package.bat`，选择 `1` 单 EXE、`2` ZIP 便携版、`3` 两种都打包。产物保存在 `dist`，失败会显示错误，不继续打包。也可以在终端执行：
 
