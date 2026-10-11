@@ -54,6 +54,191 @@ fn bare_home() -> TempDir {
 }
 
 #[test]
+fn incomplete_local_history_is_previewed_but_export_stays_strict() {
+    let home = bare_home();
+    let id = Uuid::new_v4().to_string();
+    fixture(
+        home.path(),
+        &id,
+        Some(json!({"thread_id":Uuid::new_v4().to_string(),"end_ordinal_exclusive":5})),
+        "现有后半段",
+    );
+    let preview = crate::conversation::preview(Some(home.path()), None, &id, 0).unwrap();
+    assert_eq!(preview.messages[0].text, "现有后半段");
+    assert_eq!(preview.warnings.len(), 1);
+    let out = TempDir::new().unwrap();
+    assert!(bundle::export(home.path(), &[id], &out.path().join("missing.zip")).is_err());
+}
+
+#[test]
+fn deletion_backs_up_indexes_databases_and_can_be_restored() {
+    let home = bare_home();
+    let id = Uuid::new_v4().to_string();
+    let other = Uuid::new_v4().to_string();
+    let path = fixture(home.path(), &id, None, "To delete");
+    let other_path = fixture(home.path(), &other, None, "Keep");
+    fs::write(
+        home.path().join("session_index.jsonl"),
+        format!(
+            "{}\n{}\n",
+            json!({"id":id,"thread_name":"Delete"}),
+            json!({"id":other,"thread_name":"Keep"})
+        ),
+    )
+    .unwrap();
+    fs::write(home.path().join(".codex-global-state.json"), serde_json::to_vec(&json!({"thread-project-assignments":{&id:{"projectId":"todo"},&other:{"projectId":"todo"}},"local-projects":{"todo":{"name":"todo","rootPaths":["D:\\Project"]}}})).unwrap()).unwrap();
+    let db = rusqlite::Connection::open(home.path().join("state_5.sqlite")).unwrap();
+    db.execute_batch("CREATE TABLE threads(id TEXT PRIMARY KEY,rollout_path TEXT,title TEXT,updated_at INTEGER); CREATE TABLE notes(thread_id TEXT REFERENCES threads(id),text TEXT);").unwrap();
+    for (key, file) in [(&id, &path), (&other, &other_path)] {
+        db.execute(
+            "INSERT INTO threads VALUES(?1,?2,'Test',0)",
+            rusqlite::params![key, file.to_string_lossy()],
+        )
+        .unwrap();
+        db.execute("INSERT INTO notes VALUES(?1,'Note')", [key])
+            .unwrap();
+    }
+    drop(db);
+    let options = crate::deletion::DeleteOptions {
+        home: home.path().to_path_buf(),
+        threads: vec![id.clone()],
+        confirmed: true,
+    };
+    let result = crate::deletion::delete_checked(&options, || Ok(())).unwrap();
+    assert_eq!(result.deleted, 1);
+    assert!(!path.exists());
+    assert!(other_path.exists());
+    assert!(
+        model::read_json(&home.path().join(".codex-global-state.json")).unwrap()
+            ["thread-project-assignments"][&id]
+            .is_null()
+    );
+    let db = rusqlite::Connection::open(home.path().join("state_5.sqlite")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM threads", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM notes", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    drop(db);
+    importer::restore_backup_checked(home.path(), Path::new(&result.backup)).unwrap();
+    assert!(path.exists());
+    assert_eq!(model::scan(home.path()).unwrap().threads.len(), 2);
+}
+
+#[test]
+fn deletion_requires_confirmation_and_preserves_dependent_history() {
+    let home = bare_home();
+    let id = Uuid::new_v4().to_string();
+    let child = Uuid::new_v4().to_string();
+    let parent = fixture(home.path(), &id, None, "Parent");
+    let child_path = fixture(
+        home.path(),
+        &child,
+        Some(json!({"thread_id":id,"end_ordinal_exclusive":5})),
+        "Child",
+    );
+    let mut options = crate::deletion::DeleteOptions {
+        home: home.path().to_path_buf(),
+        threads: vec![id.clone()],
+        confirmed: false,
+    };
+    assert!(crate::deletion::delete_checked(&options, || Ok(())).is_err());
+    options.confirmed = true;
+    assert!(crate::deletion::delete_checked(&options, || Ok(()))
+        .unwrap_err()
+        .to_string()
+        .contains("依赖"));
+    assert!(parent.exists());
+    assert!(child_path.exists());
+    options.threads.push(child);
+    assert_eq!(
+        crate::deletion::delete_checked(&options, || Ok(()))
+            .unwrap()
+            .deleted,
+        2
+    );
+    assert!(!parent.exists());
+    assert!(!child_path.exists());
+}
+
+#[test]
+fn deletion_failures_roll_back_earlier_database_changes() {
+    let home = bare_home();
+    let id = Uuid::new_v4().to_string();
+    let path = fixture(home.path(), &id, None, "Keep after rollback");
+    let db = rusqlite::Connection::open(home.path().join("thread_history_1.sqlite")).unwrap();
+    db.execute_batch("CREATE TABLE thread_items(thread_id TEXT); INSERT INTO thread_items VALUES('placeholder');").unwrap();
+    db.execute("UPDATE thread_items SET thread_id=?1", [&id])
+        .unwrap();
+    drop(db);
+    fs::write(
+        home.path().join(".codex-global-state.json.bak"),
+        "broken JSON",
+    )
+    .unwrap();
+    let options = crate::deletion::DeleteOptions {
+        home: home.path().to_path_buf(),
+        threads: vec![id.clone()],
+        confirmed: true,
+    };
+    assert!(crate::deletion::delete_checked(&options, || Ok(())).is_err());
+    assert!(path.exists());
+    let db = rusqlite::Connection::open(home.path().join("thread_history_1.sqlite")).unwrap();
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM thread_items WHERE thread_id=?1",
+            [&id],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn deletion_never_removes_remote_catalog_rows_or_runs_with_a_writer() {
+    let home = bare_home();
+    let id = Uuid::new_v4().to_string();
+    let path = fixture(home.path(), &id, None, "Local");
+    fs::create_dir_all(home.path().join("sqlite")).unwrap();
+    let db = rusqlite::Connection::open(home.path().join("sqlite/codex-dev.db")).unwrap();
+    db.execute_batch("CREATE TABLE local_thread_catalog(host_id TEXT,thread_id TEXT);")
+        .unwrap();
+    for host in ["local", "remote"] {
+        db.execute(
+            "INSERT INTO local_thread_catalog VALUES(?1,?2)",
+            rusqlite::params![host, &id],
+        )
+        .unwrap();
+    }
+    drop(db);
+    let options = crate::deletion::DeleteOptions {
+        home: home.path().to_path_buf(),
+        threads: vec![id.clone()],
+        confirmed: true,
+    };
+    assert!(crate::deletion::delete_checked(&options, || anyhow::bail!("Writer running")).is_err());
+    assert!(path.exists());
+    assert!(!home.path().join("chat-transfer-backups").exists());
+    crate::deletion::delete_checked(&options, || Ok(())).unwrap();
+    let db = rusqlite::Connection::open(home.path().join("sqlite/codex-dev.db")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT host_id FROM local_thread_catalog", [], |row| row
+            .get::<_, String>(
+            0
+        ))
+        .unwrap(),
+        "remote"
+    );
+}
+
+#[test]
 fn local_and_package_previews_are_read_only_and_include_history() {
     let home = bare_home();
     let out = TempDir::new().unwrap();

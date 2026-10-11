@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, LoaderCircle, X } from 'lucide-react';
 
 export type ConversationTarget = { threadId: string; title: string; home?: string; package?: string };
-type Page = { title: string; total: number; offset: number;  messages: { role: string; text: string; timestamp: string | null; truncated: boolean;  }[] };
+type Page = { title: string; total: number; offset: number; warnings?: string[]; messages: { role: string; text: string; timestamp: string | null; truncated: boolean;  }[] };
 
 export function ConversationPreview({ target, token, onClose }: { target: ConversationTarget; token: string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -33,7 +33,7 @@ export function ConversationPreview({ target, token, onClose }: { target: Conver
     <div ref={scroll} className="conversation-body" aria-busy={loading}>
       {loading && <div className="conversation-empty"><LoaderCircle size={20} className="spin" />正在读取会话</div>}
       {error && <div className="alert error" role="alert">{error}</div>}
-      
+      {page?.warnings?.map((warning, index) => <div className="alert warning" role="status" key={index}>{warning}</div>)}
       {page && page.messages.length === 0 && <p className="conversation-empty">没有可预览的正文消息</p>}
       {page?.messages.map((message, index) => <article className={`conversation-message ${message.role}`} key={offset + index}><div className="message-meta"><strong>{message.role === 'user' ? '用户' : '助手'}</strong>{message.timestamp && <time>{new Date(message.timestamp).toLocaleString('zh-CN')}</time>}</div><div className="message-text">{message.text}</div>{message.truncated && <p className="message-truncated">这条消息过长，仅显示前 131072 个字符。</p>}</article>)}
     </div>

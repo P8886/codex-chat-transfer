@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowRight, Check, CheckCircle2, ChevronDown, Download, Eye, FileArchive, Folder, FolderOpen, Layers, LoaderCircle, LockKeyhole, MessageSquare, RefreshCw, Search, Settings2, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
+import { DeleteConfirmation, type DeleteTarget } from './delete-confirmation';
 import { ConversationPreview, type ConversationTarget } from './conversation-preview';
 import { ProjectMappings, type MappingDraft, type SourceProject } from './project-mappings';
 import { RuntimeDiagnostics, type RuntimeProcess } from './runtime-diagnostics';
@@ -44,9 +45,9 @@ function App() {
   const [exported, setExported] = useState<{ output: string; manifest: Manifest } | null>(null);
   const [report, setReport] = useState<Report | null>(null);
   const [conversation, setConversation] = useState<ConversationTarget | null>(null);
-  
-  
-  
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleted, setDeleted] = useState<{ deleted: number; backup: string } | null>(null);
   
   
   
@@ -106,8 +107,8 @@ function App() {
   });
   function changeMapping(id: string, patch: Partial<MappingDraft>) { setMappings(old => ({ ...old, [id]: { ...old[id], ...patch } })); setReport(null); }
   const count = (id: string) => catalog.threads.filter(t => (archived || !t.archived) && (id === '*' || (id === '-' ? !t.projectId : t.projectId === id))).length;
-  const selectable = filtered.filter(t => !t.exportError);
-  
+  const selectable = filtered;
+  const selectedHasErrors = catalog.threads.some(t => selected.has(t.id) && t.exportError);
   
   
   
@@ -116,8 +117,22 @@ function App() {
   function toggle(id: string) { setSelected(old => { const next = new Set(old); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
   function selectVisible() { setSelected(old => { const next = new Set(old); selectable.forEach(t => allSelected ? next.delete(t.id) : next.add(t.id)); return next; }); }
 
-  
-  
+  function requestDelete(ids: string[]) {
+    setDeleteError('');
+    setDeleteTarget({ home, threads: catalog.threads.filter(t => ids.includes(t.id)).map(t => ({ id: t.id, title: t.title })) });
+  }
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setBusy('备份并删除会话'); setDeleteError('');
+    try {
+      const result = await api<{ deleted: number; backup: string }>('delete', { home: deleteTarget.home, threads: deleteTarget.threads.map(t => t.id), confirmed: true });
+      setDeleteTarget(null); setDeleted(result); setExported(null);
+      const removed = new Set(deleteTarget.threads.map(t => t.id));
+      setCatalog(old => ({ ...old, threads: old.threads.filter(t => !removed.has(t.id)) })); setSelected(new Set());
+      try { await loadCatalog(); } catch (e) { setError(`会话已删除，但刷新列表失败：${String(e)}`); }
+    } catch (e) { setDeleteError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(''); }
+  }
 
   
 
@@ -163,10 +178,10 @@ function App() {
 
   return <div className="app">
     
-    
+    {deleteTarget && <DeleteConfirmation target={deleteTarget} busy={!!busy} error={deleteError} onCancel={() => setDeleteTarget(null)} onConfirm={confirmDelete} />}
     {conversation && <ConversationPreview key={`${conversation.package || conversation.home}:${conversation.threadId}`} target={conversation} token={bootstrap?.token || ''} onClose={() => setConversation(null)} />}
     <header className="header">
-      <div className="brand"><MessageSquare size={22} /><h1>Codex Chat Transfer</h1><span className="version">v{bootstrap?.version || '0.4.0'}</span></div>
+      <div className="brand"><MessageSquare size={22} /><h1>Codex Chat Transfer</h1><span className="version">v{bootstrap?.version || '0.4.1'}</span></div>
       <div className="header-actions">
         <span className={`runtime ${bootstrap?.runtimeClosed ? 'ready' : 'blocked'}`}><span className="status-dot" />{bootstrap ? bootstrap.runtimeClosed ? '导入可用' : '数据写入进程未退出' : '正在检测进程'}</span>
         <button className="icon-button" title="设置" aria-label="设置" onClick={() => setSettings(!settings)}><Settings2 size={18} /></button>
@@ -197,14 +212,14 @@ function App() {
 
         {tab === 'export' ? <>
           
-          
+          {deleted && <div className="result" role="status"><CheckCircle2 size={20} /><div><strong>已删除 {deleted.deleted} 条会话</strong><p className="mono">备份：{deleted.backup}</p></div></div>}
           <div className="section-heading"><div><h2>{projectFilter === '*' ? '全部聊天' : projectFilter === '-' ? '无项目' : catalog.projects.find(p => p.id === projectFilter)?.name}</h2><span>{filtered.length} 条聊天</span></div><label className="check-label"><input type="checkbox" checked={archived} onChange={e => setArchived(e.target.checked)} />包含归档</label></div>
           <div className="search"><Search size={17} /><input aria-label="搜索聊天" placeholder="搜索标题、目录或会话 ID" value={query} onChange={e => setQuery(e.target.value)} />{query && <button className="icon-button" title="清除搜索" aria-label="清除搜索" onClick={() => setQuery('')}><X size={15} /></button>}</div>
-          <div className="table-wrap"><table><thead><tr><th className="checkbox-column"><input type="checkbox" aria-label="选择当前列表全部聊天" checked={allSelected} onChange={selectVisible} /></th><th>聊天</th><th className="directory-column">源目录</th><th className="date-column">更新日期</th></tr></thead><tbody>
-            {filtered.map(t => <tr key={t.id} className={selected.has(t.id) ? 'selected' : ''} onClick={() => toggle(t.id)}><td><input aria-label={`选择 ${t.title}`} type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} onClick={e => e.stopPropagation()} /></td><td><div className="thread-preview-heading"><div className="thread-title">{t.title}{t.archived && <span className="tag">归档</span>}{t.exportError && <span className="tag conflict" title={t.exportError}>文件冲突</span>}</div><button className="icon-button" title="预览会话" aria-label={`预览 ${t.title}`} disabled={!!busy} onClick={e => { e.stopPropagation(); setConversation({ threadId: t.id, title: t.title, home }); }}><Eye size={17} /></button></div><div className="thread-id mono">{t.id}</div></td><td className="directory-column"><span className="path-cell" title={t.cwd}>{t.cwd}</span></td><td className="date-column">{date(t.updatedAt)}</td></tr>)}
-            {!filtered.length && <tr><td colSpan={4} className="empty">{busy ? '正在读取聊天' : '没有匹配的聊天'}</td></tr>}
+          <div className="table-wrap"><table><thead><tr><th className="checkbox-column"><input type="checkbox" aria-label="选择当前列表全部聊天" checked={allSelected} onChange={selectVisible} /></th><th>聊天</th><th className="directory-column">源目录</th><th className="date-column">更新日期</th><th className="delete-column" aria-label="删除" /></tr></thead><tbody>
+            {filtered.map(t => <tr key={t.id} className={selected.has(t.id) ? 'selected' : ''} onClick={() => toggle(t.id)}><td><input aria-label={`选择 ${t.title}`} type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} onClick={e => e.stopPropagation()} /></td><td><div className="thread-preview-heading"><div className="thread-title">{t.title}{t.archived && <span className="tag">归档</span>}{t.exportError && <span className="tag conflict" title={t.exportError}>文件冲突</span>}</div><button className="icon-button" title="预览会话" aria-label={`预览 ${t.title}`} disabled={!!busy} onClick={e => { e.stopPropagation(); setConversation({ threadId: t.id, title: t.title, home }); }}><Eye size={17} /></button></div><div className="thread-id mono">{t.id}</div></td><td className="directory-column"><span className="path-cell" title={t.cwd}>{t.cwd}</span></td><td className="date-column">{date(t.updatedAt)}</td><td className="delete-column"><button className="icon-button danger-icon" aria-label={`删除 ${t.title}`} title="删除会话" disabled={!!busy || !bootstrap?.runtimeClosed} onClick={e => { e.stopPropagation(); requestDelete([t.id]); }}><Trash2 size={17} /></button></td></tr>)}
+            {!filtered.length && <tr><td colSpan={5} className="empty">{busy ? '正在读取聊天' : '没有匹配的聊天'}</td></tr>}
           </tbody></table></div>
-<div className="export-bar"><span><strong>{selected.size}</strong> 条已选</span><div className="path-input"><input aria-label="导出文件路径" placeholder="导出文件路径" value={output} onChange={e => setOutput(e.target.value)} /><button className="icon-button" title="选择导出位置" aria-label="选择导出位置" disabled={!!busy} onClick={() => choose('save', setOutput)}><FolderOpen size={18} /></button></div><button className="button primary" disabled={!!busy || !selected.size || !output} onClick={() => perform('打包聊天与历史依赖', async () => { setExported(null); const result = await api<{ output: string; manifest: Manifest }>('export', { home, threads: [...selected], output }); setExported(result); })}><Download size={17} />导出 {selected.size || ''}</button></div>
+<div className="export-bar"><span><strong>{selected.size}</strong> 条已选</span><div className="path-input"><input aria-label="导出文件路径" placeholder="导出文件路径" value={output} onChange={e => setOutput(e.target.value)} /><button className="icon-button" title="选择导出位置" aria-label="选择导出位置" disabled={!!busy} onClick={() => choose('save', setOutput)}><FolderOpen size={18} /></button></div><button className="button primary" disabled={!!busy || !selected.size || !output || selectedHasErrors} onClick={() => perform('打包聊天与历史依赖', async () => { setExported(null); const result = await api<{ output: string; manifest: Manifest }>('export', { home, threads: [...selected], output }); setExported(result); })}><Download size={17} />导出 {selected.size || ''}</button><button className="button danger" disabled={!!busy || !selected.size || !bootstrap?.runtimeClosed} onClick={() => requestDelete([...selected])}><Trash2 size={17} />删除 {selected.size || ''}</button></div>
           {exported && <div className="result" role="status"><CheckCircle2 size={22} /><div><strong>已导出 {exported.manifest.threads.length} 条聊天</strong><p className="mono">{exported.output}</p><span>{exported.manifest.sourceProjects?.length || 0} 个项目分组 · {exported.manifest.assets.length} 个图片引用 · 历史依赖已合并 · 文件校验已完成</span>{exported.manifest.warnings.length > 0 && <details><summary>{exported.manifest.warnings.length} 条附件警告</summary>{exported.manifest.warnings.map((w, i) => <p key={i}>{w}</p>)}</details>}</div></div>}
         </> : <>
           <div className="section-heading"><div><h2>导入到本机项目</h2><span>{preview ? `${preview.manifest.threads.length} 条聊天待导入` : '尚未选择导出包'}</span></div><ShieldCheck size={23} className="muted" /></div>

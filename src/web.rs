@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use codex_chat_transfer::{
-    bundle, conversation,
+    bundle, conversation, deletion,
     importer::{self, ImportOptions},
     model, rpc, runtime,
 };
@@ -67,6 +67,9 @@ fn api(request: &mut Request, token: &str, origin: &str) -> Result<Value> {
         ))
     };
     match request.url() {
+        "/api/delete" => Ok(serde_json::to_value(deletion::delete(
+            &serde_json::from_value(body)?,
+        )?)?),
         "/api/conversation" => {
             let id = body["threadId"].as_str().context("缺少会话 ID")?;
             let offset = body["offset"].as_u64().unwrap_or(0);
@@ -218,7 +221,10 @@ pub fn serve(port: u16, no_open: bool) -> Result<()> {
 
 fn respond(mut request: Request, token: &str, origin: &str, busy: &AtomicBool) {
     let operation = request.method() == &Method::Post
-        && matches!(request.url(), "/api/import" | "/api/export" | "/api/dialog");
+        && matches!(
+            request.url(),
+            "/api/import" | "/api/export" | "/api/delete" | "/api/dialog"
+        );
     if operation {
         busy.store(true, Ordering::Release);
     }

@@ -188,7 +188,7 @@ fn flatten(
     Ok(result)
 }
 
-pub fn local_preview_records(home: &Path, id: &str) -> Result<(String, Vec<Value>)> {
+pub fn local_preview_records(home: &Path, id: &str) -> Result<(String, Vec<Value>, Vec<String>)> {
     let catalog: BTreeMap<_, _> = scan(home)?
         .threads
         .into_iter()
@@ -196,14 +196,29 @@ pub fn local_preview_records(home: &Path, id: &str) -> Result<(String, Vec<Value
         .collect();
     let thread = catalog.get(id).context("本机未找到该会话")?;
     let mut snapshots = BTreeMap::new();
-    let records = flatten(thread, &catalog, None, &mut BTreeSet::new(), &mut snapshots)?;
+    let mut warnings = Vec::new();
+    let records = match flatten(thread, &catalog, None, &mut BTreeSet::new(), &mut snapshots) {
+        Ok(records) => records,
+        Err(error) => {
+            if let Some(error) = &thread.export_error {
+                anyhow::bail!("{error}");
+            }
+            warnings.push(format!(
+                "历史不完整，仅显示当前会话文件中的现有内容：{error:#}"
+            ));
+            read_records(&thread.path)?
+                .into_iter()
+                .map(|(_, _, row)| row)
+                .collect()
+        }
+    };
     for (path, expected) in snapshots {
         ensure!(
             digest_file(&path)? == expected,
             "会话读取期间发生变化，请重试"
         );
     }
-    Ok((thread.title.clone(), records))
+    Ok((thread.title.clone(), records, warnings))
 }
 
 pub fn expected_message_ids(records: &[Value]) -> BTreeSet<String> {

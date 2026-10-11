@@ -20,6 +20,7 @@ pub struct Conversation {
     pub total: usize,
     pub offset: usize,
     pub messages: Vec<Message>,
+    pub warnings: Vec<String>,
 }
 
 fn content(value: &Value) -> String {
@@ -143,7 +144,7 @@ pub fn preview(
         home.is_some() != package.is_some(),
         "请选择本机会话或导出包中的会话"
     );
-    let (title, records) = if let Some(home) = home {
+    let (title, records, warnings) = if let Some(home) = home {
         bundle::local_preview_records(home, id)?
     } else {
         let package = bundle::load(package.context("缺少导出包")?)?;
@@ -156,6 +157,7 @@ pub fn preview(
         (
             thread.title.clone(),
             bundle::decode_records(package.files.get(&thread.file).context("会话文件缺失")?)?,
+            Vec::new(),
         )
     };
     let all = messages(&records);
@@ -166,6 +168,7 @@ pub fn preview(
         total,
         offset,
         messages: all.into_iter().skip(offset).take(50).collect(),
+        warnings,
     })
 }
 

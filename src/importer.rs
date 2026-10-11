@@ -85,13 +85,13 @@ struct BackupEntry {
     database: bool,
 }
 
-struct Backup {
-    directory: PathBuf,
+pub(crate) struct Backup {
+    pub(crate) directory: PathBuf,
     entries: Vec<BackupEntry>,
 }
 
 impl Backup {
-    fn create(home: &Path, paths: &BTreeSet<PathBuf>) -> Result<Self> {
+    pub(crate) fn create(home: &Path, paths: &BTreeSet<PathBuf>) -> Result<Self> {
         let directory = home.join("chat-transfer-backups").join(format!(
             "{}-{}",
             Utc::now().format("%Y%m%d-%H%M%S"),
@@ -126,7 +126,7 @@ impl Backup {
         Ok(Self { directory, entries })
     }
 
-    fn restore(&self) -> Result<()> {
+    pub(crate) fn restore(&self) -> Result<()> {
         for entry in &self.entries {
             let path = Path::new(&entry.path);
             if entry.database {

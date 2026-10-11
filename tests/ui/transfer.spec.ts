@@ -1,5 +1,48 @@
 import { test, expect } from '@playwright/test';
 
+test('single and bulk deletion require confirmation and export controls stay above the list', async ({page}) => {
+  const deletions: Record<string, unknown>[]=[];
+  let removed=false;
+  await page.route('**/api/catalog',route=>route.fulfill({json:{home:'C:\\Users\\test\\.codex',projects:[project],threads:removed?[]:threads,warnings:[]}}));
+  await page.route('**/api/delete',async route=>{
+    deletions.push(route.request().postDataJSON()); removed=true;
+    await route.fulfill({json:{deleted:2,backup:'C:\\test\\chat-transfer-backups\\delete'}});
+  });
+  await page.goto('/');
+  await page.getByRole('button',{name:'删除 子任务勾选状态更新',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'确认删除会话'});
+  await expect(dialog.getByText('删除 1 条本机会话？')).toBeVisible();
+  expect(deletions).toHaveLength(0);
+  await dialog.getByRole('button',{name:'取消',exact:true}).click();
+  expect(deletions).toHaveLength(0);
+  await page.getByRole('checkbox',{name:'选择当前列表全部聊天'}).check();
+  await page.getByRole('button',{name:'删除 2',exact:true}).click();
+  await expect(dialog.getByRole('listitem').filter({hasText:'样式更改与日历统计'})).toBeVisible();
+  await page.screenshot({path:'test-results/delete-desktop.png'});
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:'test-results/delete-mobile.png'});
+  expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+  await dialog.getByRole('button',{name:'确认删除 2 条',exact:true}).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByText('已删除 2 条会话',{exact:true})).toBeVisible();
+  expect(deletions).toEqual([{home:'C:\\Users\\test\\.codex',threads:threads.map(t=>t.id),confirmed:true}]);
+});
+
+test('deletion errors keep the confirmation open and incomplete previews show existing text',async({page})=>{
+  await page.route('**/api/delete',route=>route.fulfill({status:400,json:{error:'另一会话依赖这段历史'}}));
+  await page.route('**/api/conversation',route=>route.fulfill({json:{title:'Preview',total:1,offset:0,warnings:['前段历史缺失，仅显示现有内容'],messages:[{role:'user',text:'现有内容',timestamp:null,truncated:false}]}}));
+  await page.goto('/');
+  await page.getByRole('button',{name:'删除 子任务勾选状态更新',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'确认删除会话'});
+  await dialog.getByRole('button',{name:'确认删除 1 条',exact:true}).click();
+  await expect(dialog.getByRole('alert')).toHaveText('另一会话依赖这段历史');
+  await dialog.getByRole('button',{name:'取消',exact:true}).click();
+  await page.getByRole('button',{name:'预览 子任务勾选状态更新',exact:true}).click();
+  const preview=page.getByRole('dialog',{name:'会话预览'});
+  await expect(preview.getByText('前段历史缺失，仅显示现有内容')).toBeVisible();
+  await expect(preview.getByText('现有内容',{exact:true})).toBeVisible();
+});
+
 test('previews local and packaged conversations without importing', async ({ page }) => {
   const requests: Record<string, unknown>[] = [];
   let imports = 0;

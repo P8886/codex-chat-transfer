@@ -1,5 +1,6 @@
 pub mod bundle;
 pub mod conversation;
+pub mod deletion;
 pub mod importer;
 pub mod model;
 pub mod rpc;
