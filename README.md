@@ -4,7 +4,7 @@
 
 ## 使用
 
-单文件版只需复制 `codex-chat-transfer-single-v0.4.2.exe`，双击即打开独立窗口。EXE 内置应用与加载器，首次运行自动释放到当前用户的 `%LOCALAPPDATA%\CodexChatTransfer\single-file` 缓存，不需要手动携带 DLL、解压 ZIP 或安装应用。仍使用系统 WebView2 Runtime。关闭窗口后，启动器和内部服务一并退出。单文件版是图形入口，命令行功能使用下面的普通便携包。
+单文件版只需复制 `codex-chat-transfer-single-v0.4.3.exe`，双击即打开独立窗口。EXE 内置应用与加载器，首次运行自动释放到当前用户的 `%LOCALAPPDATA%\CodexChatTransfer\single-file` 缓存，不需要手动携带 DLL、解压 ZIP 或安装应用。仍使用系统 WebView2 Runtime。关闭窗口后，启动器和内部服务一并退出。单文件版是图形入口，命令行功能使用下面的普通便携包。
 
 界面导出只需选择文件夹，自动生成 `codex-chats.cct.zip`。同名文件存在时依次尝试 `codex-chats-1.cct.zip`、`codex-chats-2.cct.zip`，不会覆盖现有包；结果显示实际生成的完整路径。命令行的 `--out` 仍使用指定文件名。
 
@@ -22,7 +22,9 @@
 
 图形入口为 `codex-chat-transfer.exe`；命令行使用 `codex-chat-transfer-cli.exe`，二者共用同一套迁移逻辑。
 
-导入前须完全退出 Codex，包括后台的 app-server。工具会检查进程并拒绝运行中的导入，不会关闭或重启 Codex。导出时可以运行 Codex，但若源记录在打包期间变化，会终止导出。
+导入前须完全退出 Codex，包括后台的 app-server。工具会检查进程并拒绝运行中的导入，不会自动关闭或重启 Codex。导出时可以运行 Codex，但若源记录在打包期间变化，会终止导出。
+
+右上角状态可展开或收起进程诊断，导出和导入页面共用同一列表。可点击“结束阻塞进程”，确认清单与风险后强制结束身份可验证的进程；结束前核对 PID、创建时间与程序路径。不会结束整个 VS Code / Cursor，不会自动执行导入或删除，扩展重启的后台仍会显示。路径或创建时间无法验证的进程需手动退出。请先保存工作、停止任务，强制结束可能中断数据写入。置灰的删除、导出和导入按钮可悬浮或键盘聚焦查看不可用原因。
 
 VS Code / Cursor 的 Codex 扩展也可能启动 app-server，即使 Codex 桌面窗口已关闭仍会占用数据。新版列出 PID、来源和路径，忽略 `exec-server` 远程辅助进程、只读命令及孤立的 Electron 子进程；不会跳过真正的会话服务。命令行 `diagnose` 可查看相同的进程诊断，不输出完整命令行或令牌。
 

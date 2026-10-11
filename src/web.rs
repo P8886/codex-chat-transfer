@@ -67,6 +67,9 @@ fn api(request: &mut Request, token: &str, origin: &str) -> Result<Value> {
         ))
     };
     match request.url() {
+        "/api/runtime/terminate" => Ok(serde_json::to_value(runtime::terminate(
+            &serde_json::from_value(body)?,
+        )?)?),
         "/api/delete" => Ok(serde_json::to_value(deletion::delete(
             &serde_json::from_value(body)?,
         )?)?),
@@ -227,7 +230,11 @@ fn respond(mut request: Request, token: &str, origin: &str, busy: &AtomicBool) {
     let operation = request.method() == &Method::Post
         && matches!(
             request.url(),
-            "/api/import" | "/api/export" | "/api/delete" | "/api/dialog"
+            "/api/import"
+                | "/api/export"
+                | "/api/delete"
+                | "/api/dialog"
+                | "/api/runtime/terminate"
         );
     if operation {
         busy.store(true, Ordering::Release);

@@ -1,5 +1,43 @@
 import { test, expect } from '@playwright/test';
 
+test('header diagnostics, disabled reasons and confirmed process termination are connected',async({page})=>{
+  const process={pid:1234,name:'codex.exe',source:'编辑器的 Codex 扩展后台',reason:'会话服务仍在运行',executable:'C:\\codex.exe',parent:'Code.exe',startTime:100};
+  let blocked=true; const stops:unknown[]=[];
+  await page.route('**/api/bootstrap',route=>route.fulfill({json:{home:'C:\\Users\\test\\.codex',codexBinary:'C:\\codex.exe',token:'test-token',runtimeClosed:!blocked,blockingProcesses:blocked?[process]:[],runtimeError:blocked?'请退出后台':null,version:'0.4.3'}}));
+  await page.route('**/api/runtime/terminate',async route=>{stops.push(route.request().postDataJSON());blocked=false;await route.fulfill({json:{stopped:[1234],errors:[],runtime:{blocked:false,blockers:[]}}});});
+  await page.goto('/');
+  const rowDelete=page.getByRole('button',{name:'删除 子任务勾选状态更新',exact:true});
+  await expect(rowDelete).toBeDisabled();
+  await rowDelete.locator('..').hover();
+  await expect(page.getByRole('tooltip')).toContainText('暂不可删除');
+  await page.getByRole('button',{name:'后台进程状态',exact:true}).click();
+  await expect(page.getByText('编辑器的 Codex 扩展后台',{exact:true})).toBeVisible();
+  await page.screenshot({path:'test-results/runtime-blocked-desktop.png'});
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:'test-results/runtime-blocked-mobile.png'});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.setViewportSize({width:1280,height:900});
+  await page.getByRole('button',{name:'导入到本机',exact:true}).click();
+  await expect(page.getByText('编辑器的 Codex 扩展后台',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'结束阻塞进程',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'确认结束进程'});
+  await expect(dialog.getByText('codex.exe · PID 1234',{exact:true})).toBeVisible();
+  expect(stops).toHaveLength(0);
+  await dialog.getByRole('button',{name:'取消',exact:true}).click();
+  expect(stops).toHaveLength(0);
+  await page.getByRole('button',{name:'结束阻塞进程',exact:true}).click();
+  await dialog.getByRole('button',{name:'确认结束进程',exact:true}).click();
+  await expect(dialog).not.toBeVisible();
+  expect(stops).toEqual([{confirmed:true,processes:[process]}]);
+  await page.getByRole('button',{name:'导出聊天',exact:true}).click();
+  await expect(rowDelete).toBeEnabled();
+  await page.getByRole('button',{name:'删除',exact:true}).locator('..').hover();
+  await expect(page.getByRole('tooltip')).toHaveText('请先勾选要删除的会话');
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:'test-results/runtime-mobile.png'});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+
 test('single and bulk deletion require confirmation and export controls stay above the list', async ({page}) => {
   const deletions: Record<string, unknown>[]=[];
   let removed=false;
@@ -178,7 +216,7 @@ test('keeps two source projects, requires both folders and submits separate mapp
 
 test('shows the editor process that actually blocks import',async({page})=>{
   await page.route('**/api/bootstrap',route=>route.fulfill({json:{home:'C:\\Users\\test\\.codex',codexBinary:'C:\\codex.exe',token:'test-token',runtimeClosed:false,runtimeError:'请退出列表中的数据写入进程',version:'0.3.1',blockingProcesses:[{pid:1234,name:'codex.exe',source:'编辑器的 Codex 扩展后台',reason:'会话服务仍在运行，可能写入聊天数据库',executable:'C:\\Users\\test\\.vscode\\extensions\\codex.exe',parent:'Code.exe'}]}}));
-  await page.goto('/');await page.getByRole('button',{name:'导入到本机',exact:true}).click();
+  await page.goto('/');await page.getByRole('button',{name:'后台进程状态',exact:true}).click();
   await expect(page.getByText('编辑器的 Codex 扩展后台',{exact:true})).toBeVisible();
   await expect(page.getByText('1234',{exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'复制进程诊断',exact:true})).toBeVisible();

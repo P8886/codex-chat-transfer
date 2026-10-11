@@ -11,6 +11,7 @@ pub struct RuntimeProcess {
     pub reason: String,
     pub executable: Option<String>,
     pub parent: Option<String>,
+    pub start_time: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +169,7 @@ pub fn inspect() -> RuntimeReport {
                 reason,
                 executable,
                 parent,
+                start_time: process.start_time(),
             });
         }
     }
@@ -180,9 +182,141 @@ pub fn inspect() -> RuntimeReport {
 
 pub fn ensure_closed() -> Result<()> {
     let report = inspect();
-    ensure!(!report.blocked,"检测到可修改 Codex 数据的进程：{}。请查看 CCT 的进程列表并退出对应程序；本工具不会关闭或重启它们。",
+    ensure!(!report.blocked,"检测到可修改 Codex 数据的进程：{}。请查看 CCT 的进程列表，手动退出或确认结束阻塞进程；本工具不会自动关闭或重启它们。",
         report.blockers.iter().map(|p|format!("{}（{}，PID {}）",p.source,p.name,p.pid)).collect::<Vec<_>>().join("；"));
     Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct TerminateOptions {
+    pub confirmed: bool,
+    pub processes: Vec<RuntimeProcess>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminateReport {
+    pub stopped: Vec<u32>,
+    pub errors: Vec<String>,
+    pub runtime: RuntimeReport,
+}
+
+fn same_process(expected: &RuntimeProcess, actual: &RuntimeProcess) -> bool {
+    expected.pid == actual.pid
+        && expected.start_time > 0
+        && expected.start_time == actual.start_time
+        && expected.executable.is_some()
+        && expected.executable == actual.executable
+        && expected.name == actual.name
+}
+
+pub fn terminate(options: &TerminateOptions) -> Result<TerminateReport> {
+    ensure!(options.confirmed, "请先确认结束进程");
+    ensure!(!options.processes.is_empty(), "未选择进程");
+    let current = inspect();
+    for expected in &options.processes {
+        if let Some(actual) = current.blockers.iter().find(|p| p.pid == expected.pid) {
+            ensure!(
+                same_process(expected, actual),
+                "进程身份已变化或信息不可读取，请刷新进程列表"
+            );
+        }
+    }
+    let mut stopped = Vec::new();
+    let mut errors = Vec::new();
+    for expected in &options.processes {
+        let fresh = inspect();
+        let Some(actual) = fresh.blockers.iter().find(|p| p.pid == expected.pid) else {
+            continue;
+        };
+        if !same_process(expected, actual) {
+            errors.push(format!("PID {} 身份已变化，未结束", expected.pid));
+            continue;
+        }
+        match stop_process(actual) {
+            Ok(()) => stopped.push(actual.pid),
+            Err(error) => errors.push(format!("{}（PID {}）：{error:#}", actual.name, actual.pid)),
+        }
+    }
+    Ok(TerminateReport {
+        stopped,
+        errors,
+        runtime: inspect(),
+    })
+}
+
+#[cfg(windows)]
+fn stop_process(process: &RuntimeProcess) -> Result<()> {
+    use anyhow::Context;
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, FILETIME},
+        System::Threading::{
+            GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, TerminateProcess,
+            WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+            PROCESS_TERMINATE,
+        },
+    };
+    struct Handle(windows_sys::Win32::Foundation::HANDLE);
+    impl Drop for Handle {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+    ensure!(process.pid != std::process::id(), "不能结束迁移工具自身");
+    let handle = Handle(unsafe {
+        OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+            0,
+            process.pid,
+        )
+    });
+    ensure!(
+        !handle.0.is_null(),
+        "无法打开进程：{}，请手动退出",
+        std::io::Error::last_os_error()
+    );
+    let mut created: FILETIME = unsafe { std::mem::zeroed() };
+    let mut exited = created;
+    let mut kernel = created;
+    let mut user = created;
+    ensure!(
+        unsafe { GetProcessTimes(handle.0, &mut created, &mut exited, &mut kernel, &mut user) }
+            != 0,
+        "无法验证进程创建时间"
+    );
+    let ticks = ((created.dwHighDateTime as u64) << 32) | created.dwLowDateTime as u64;
+    let start_time = ticks / 10_000_000 - 11_644_473_600;
+    let mut buffer = vec![0u16; 32768];
+    let mut length = buffer.len() as u32;
+    ensure!(
+        unsafe { QueryFullProcessImageNameW(handle.0, 0, buffer.as_mut_ptr(), &mut length) } != 0,
+        "无法验证进程路径"
+    );
+    let executable = String::from_utf16(&buffer[..length as usize]).context("进程路径无效")?;
+    ensure!(
+        start_time == process.start_time
+            && crate::model::path_key(&executable)
+                == crate::model::path_key(process.executable.as_deref().unwrap_or("")),
+        "进程身份已变化，未结束"
+    );
+    // Use the validated handle, not a new PID lookup, so PID reuse cannot target a different process.
+    ensure!(
+        unsafe { TerminateProcess(handle.0, 1) } != 0,
+        "结束进程失败：{}",
+        std::io::Error::last_os_error()
+    );
+    ensure!(
+        unsafe { WaitForSingleObject(handle.0, 5000) } == 0,
+        "进程尚未退出，请刷新检查"
+    );
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn stop_process(_: &RuntimeProcess) -> Result<()> {
+    anyhow::bail!("当前平台请手动退出进程")
 }
 
 #[cfg(test)]
@@ -190,6 +324,38 @@ mod tests {
     use super::*;
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn ending_processes_requires_confirmation_and_verified_identity() {
+        let mut expected = RuntimeProcess {
+            pid: 123,
+            name: "codex.exe".into(),
+            source: String::new(),
+            reason: String::new(),
+            executable: Some("C:/Codex/codex.exe".into()),
+            parent: None,
+            start_time: 100,
+        };
+        let mut actual = expected.clone();
+        assert!(same_process(&expected, &actual));
+        actual.start_time = 101;
+        assert!(!same_process(&expected, &actual));
+        actual = expected.clone();
+        actual.executable = Some("C:/Other/codex.exe".into());
+        assert!(!same_process(&expected, &actual));
+        expected.start_time = 0;
+        assert!(!same_process(&expected, &expected));
+        assert!(terminate(&TerminateOptions {
+            confirmed: false,
+            processes: Vec::new()
+        })
+        .is_err());
+        assert!(terminate(&TerminateOptions {
+            confirmed: true,
+            processes: Vec::new()
+        })
+        .is_err());
     }
     #[test]
     fn remote_and_read_only_helpers_do_not_block_import() {
