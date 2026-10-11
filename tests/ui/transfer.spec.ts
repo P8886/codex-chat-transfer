@@ -1,5 +1,21 @@
 import { test, expect } from '@playwright/test';
 
+test('user messages align right and assistant messages align left without overflow',async({page})=>{
+  await page.route('**/api/conversation',route=>route.fulfill({json:{title:'Aligned conversation',total:3,offset:0,messages:[{role:'user',text:'收到，谢谢',timestamp:'2026-10-11T08:00:00Z',truncated:false},{role:'assistant',text:'已处理完成。\n这是助手的回复，保留左侧阅读布局。',timestamp:'2026-10-11T08:00:05Z',truncated:false},{role:'user',text:'https://example.test/'+ 'long-content-'.repeat(50),timestamp:null,truncated:false}]}}));
+  await page.goto('/');await page.getByRole('button',{name:'预览 子任务勾选状态更新',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'会话预览'});
+  await expect(dialog.getByText('收到，谢谢',{exact:true})).toBeVisible();
+  for(const viewport of [{width:1280,height:900},{width:800,height:600}]) {
+    await page.setViewportSize(viewport);
+    const user=await dialog.locator('.conversation-message.user .message-content').first().boundingBox();
+    const assistant=await dialog.locator('.conversation-message.assistant .message-content').boundingBox();
+    expect(user!.x).toBeGreaterThan(assistant!.x+50);
+    expect(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
+    expect(await dialog.locator('.message-content').evaluateAll(elements=>elements.every(el=>el.scrollWidth<=el.clientWidth+1))).toBe(true);
+    await page.screenshot({path:`test-results/aligned-${viewport.width}.png`});
+  }
+});
+
 test('local and packaged image previews load, enlarge and report missing pictures',async({page})=>{
   await page.goto('/');
   const dataUrl=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=200;canvas.height=120;const ctx=canvas.getContext('2d')!;ctx.fillStyle='#209979';ctx.fillRect(0,0,200,120);ctx.fillStyle='#edc65c';ctx.fillRect(40,30,120,60);return canvas.toDataURL('image/png');});
