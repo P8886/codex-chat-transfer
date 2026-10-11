@@ -18,7 +18,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 button, input, select, summary { outline-offset: 3px; }
 input:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid #237c92; }
 input[type=checkbox] { accent-color: #237c92; width: 16px; height: 16px; flex: 0 0 16px; cursor: pointer; }
-.app { max-width: 1600px; margin: auto; min-height: 100vh; background: white; }
+.app { width: 100%; min-height: 100vh; background: white; }
 .header { height: 76px; padding: 0 28px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e1e5e7; gap: 18px; }
 .brand, .header-actions { display: flex; align-items: center; gap: 12px; }
 .brand > svg { color: #237c92; }

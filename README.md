@@ -4,7 +4,7 @@
 
 ## 使用
 
-单文件版只需复制 `codex-chat-transfer-single-v0.6.1.exe`，双击即打开独立窗口。EXE 内置应用与加载器，首次运行自动释放到当前用户的 `%LOCALAPPDATA%\CodexChatTransfer\single-file` 缓存，不需要手动携带 DLL、解压 ZIP 或安装应用。仍使用系统 WebView2 Runtime。关闭窗口后，启动器和内部服务一并退出。单文件版是图形入口，命令行功能使用下面的普通便携包。
+单文件版只需复制 `codex-chat-transfer-single-v0.6.2.exe`，双击即打开独立窗口。EXE 内置应用与加载器，首次运行自动释放到当前用户的 `%LOCALAPPDATA%\CodexChatTransfer\single-file` 缓存，不需要手动携带 DLL、解压 ZIP 或安装应用。仍使用系统 WebView2 Runtime。关闭窗口后，启动器和内部服务一并退出。单文件版是图形入口，命令行功能使用下面的普通便携包。
 
 桌面窗口中，聊天列表与左侧项目列表独立滚动，导出操作栏、搜索框及聊天表头保持固定；导入页仅滚动右侧内容区域。
 

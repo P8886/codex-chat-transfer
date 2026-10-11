@@ -5,8 +5,11 @@ test('desktop lists scroll independently while export controls and table heading
   await page.route('**/api/preview',route=>route.fulfill({json:{manifest:{...manifest,threads:Array.from({length:100},(_,i)=>({...manifest.threads[0],id:`packed-${i}`}))},conflicts:[]}}));
   await page.goto('/');
   await expect(page.getByText('Chat 0',{exact:true})).toBeVisible();
-  for(const viewport of [{width:1280,height:900},{width:1000,height:650}]) {
+  for(const viewport of [{width:2560,height:1440},{width:1280,height:900},{width:1000,height:650}]) {
     await page.setViewportSize(viewport);
+    const app=await page.locator('.app').boundingBox();
+    expect(app!.x).toBe(0);
+    expect(app!.width).toBe(viewport.width);
     const bar=page.locator('.export-bar');const before=await bar.boundingBox();
     const list=page.locator('.export-view > .table-wrap');
     expect(await list.evaluate(el=>el.scrollHeight>el.clientHeight)).toBe(true);
