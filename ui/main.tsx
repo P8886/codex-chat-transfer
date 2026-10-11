@@ -194,7 +194,7 @@ function App() {
     {deleteTarget && <DeleteConfirmation target={deleteTarget} busy={!!busy} error={deleteError} onCancel={() => setDeleteTarget(null)} onConfirm={confirmDelete} />}
     {conversation && <ConversationPreview key={`${conversation.package || conversation.home}:${conversation.threadId}`} target={conversation} token={bootstrap?.token || ''} onClose={() => setConversation(null)} />}
     <header className="header">
-      <div className="brand"><img src={appIcon} alt="" aria-hidden="true" /><h1>Codex Chat Transfer</h1><span className="version">v{bootstrap?.version || '0.5.2'}</span></div>
+      <div className="brand"><img src={appIcon} alt="" aria-hidden="true" /><h1>Codex Chat Transfer</h1><span className="version">v{bootstrap?.version || '0.5.3'}</span></div>
       <div className="header-actions">
         <button className={`runtime runtime-toggle ${bootstrap?.runtimeClosed ? 'ready' : 'blocked'}`} aria-label="后台进程状态" aria-expanded={runtimeExpanded} aria-controls="runtime-details" title="展开或收起后台进程列表" onClick={() => setRuntimeExpanded(!runtimeExpanded)}><span className="status-dot" />{bootstrap ? bootstrap.runtimeClosed ? '导入和删除可用' : '数据写入进程未退出' : '正在检测进程'}<ChevronDown size={14} className={runtimeExpanded ? 'expanded-chevron' : ''} /></button>
         <button className="icon-button" title="设置" aria-label="设置" onClick={() => setSettings(!settings)}><Settings2 size={18} /></button>

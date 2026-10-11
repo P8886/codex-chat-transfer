@@ -1,6 +1,8 @@
 mod commands;
 #[cfg(windows)]
 mod desktop;
+#[cfg(windows)]
+mod single_instance;
 mod web;
 
 fn main() {

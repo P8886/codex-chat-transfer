@@ -42,10 +42,15 @@ fn run() -> Result<i32> {
     extract_file(&directory.join("WebView2Loader.dll"), LOADER)?;
     FileExt::unlock(&lock)?;
     drop(lock);
-    let status = Command::new(&application)
+    let mut child = Command::new(&application)
         .current_dir(&directory)
-        .status()
+        .spawn()
         .context("无法启动内置独立窗口")?;
+    #[cfg(windows)]
+    unsafe {
+        windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(child.id());
+    }
+    let status = child.wait().context("无法等待内置窗口退出")?;
     Ok(status.code().unwrap_or(1))
 }
 

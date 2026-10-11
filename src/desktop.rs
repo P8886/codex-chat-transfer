@@ -1,6 +1,6 @@
-use crate::web::LocalServer;
+use crate::{single_instance, web::LocalServer};
 use anyhow::{Context, Result};
-use tao::platform::windows::{IconExtWindows, WindowBuilderExtWindows};
+use tao::platform::windows::{IconExtWindows, WindowBuilderExtWindows, WindowExtWindows};
 use tao::{
     dpi::{LogicalSize, PhysicalSize},
     event::{Event, WindowEvent},
@@ -11,6 +11,9 @@ use tao::{
 use wry::{WebContext, WebViewBuilder};
 
 pub fn run() -> Result<()> {
+    let Some(instance) = single_instance::Instance::acquire()? else {
+        return Ok(());
+    };
     let directory = std::env::current_exe()?
         .parent()
         .context("应用目录不可用")?
@@ -31,7 +34,11 @@ pub fn run() -> Result<()> {
         .with_inner_size(LogicalSize::new(1180.0, 800.0))
         .with_min_inner_size(LogicalSize::new(800.0, 600.0))
         .build(&event_loop)?;
-
+    let marker = instance.register_window(window.hwnd() as windows_sys::Win32::Foundation::HWND)?;
+    let proxy = event_loop.create_proxy();
+    let listener = instance.listen(move || {
+        let _ = proxy.send_event(());
+    });
     let mut context = WebContext::new(Some(directory));
     let origin = server.origin.clone();
     let allowed_origin = origin.clone();
@@ -44,7 +51,12 @@ pub fn run() -> Result<()> {
         .context("无法创建独立窗口，请确认系统已安装 Microsoft Edge WebView2 Runtime")?;
     event_loop.run_return(|event, _, flow| {
         *flow = ControlFlow::Wait;
-
+        if let Event::UserEvent(()) = event {
+            if window.is_minimized() {
+                window.set_minimized(false);
+            }
+            single_instance::focus_window(window.hwnd() as windows_sys::Win32::Foundation::HWND);
+        }
         if let Event::WindowEvent {
             event: WindowEvent::CloseRequested,
             ..
@@ -61,10 +73,13 @@ pub fn run() -> Result<()> {
             }
         }
     });
+    drop(listener);
+    drop(marker);
     drop(webview);
     drop(context);
     drop(window);
     drop(server);
+    drop(instance);
     Ok(())
 }
 
