@@ -9,6 +9,9 @@ test('single and bulk deletion require confirmation and export controls stay abo
     await route.fulfill({json:{deleted:2,backup:'C:\\test\\chat-transfer-backups\\delete'}});
   });
   await page.goto('/');
+  const output=await page.getByRole('textbox',{name:'导出文件路径'}).boundingBox();
+  const list=await page.getByRole('checkbox',{name:'选择当前列表全部聊天'}).boundingBox();
+  expect(output!.y).toBeLessThan(list!.y);
   await page.getByRole('button',{name:'删除 子任务勾选状态更新',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'确认删除会话'});
   await expect(dialog.getByText('删除 1 条本机会话？')).toBeVisible();
